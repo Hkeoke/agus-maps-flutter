@@ -1,0 +1,645 @@
+# Implementation Plan: Car Maps Application
+
+## Overview
+
+This implementation plan breaks down the Car Maps Application into discrete, incremental tasks. The approach follows clean architecture principles, building from the domain layer outward. Each task builds on previous work, with regular checkpoints to ensure quality and integration.
+
+The implementation focuses on Android initially, with the core architecture designed to support future platform expansion.
+
+## Tasks
+
+- [x] 1. Project Setup and Core Infrastructure
+  - Create new Flutter project with name rikera_app with proper folder structure (lib/features, lib/core, lib/app)
+  - Add dependencies: agus_maps_flutter, get_it, flutter_bloc, geolocator, shared_preferences, path_provider, http
+  - Set up dependency injection container with get_it
+  - Configure Android permissions (location, internet, storage) in AndroidManifest.xml
+  - Create core utilities (Result type, error classes, constants)
+  - _Requirements: 1.1, 1.4, 1.5_
+
+- [x] 2. Domain Layer - Core Entities and Value Objects
+  - [x] 2.1 Create Location entity with latitude, longitude, altitude, accuracy, speed, heading, timestamp
+    - _Requirements: 4.1, 4.2_
+  - [x] 2.2 Create Route entity with waypoints, totalDistanceMeters, estimatedTimeSeconds, segments, bounds
+    - _Requirements: 5.1, 5.2_
+  - [x] 2.3 Create RouteSegment entity with start, end, turnDirection, distanceMeters, streetName, speedLimitKmh
+    - _Requirements: 6.2, 15.1_
+  - [x] 2.4 Create MapRegion entity with id, name, fileName, sizeBytes, snapshotVersion, bounds, isDownloaded
+    - _Requirements: 3.1, 3.5_
+  - [x] 2.5 Create NavigationState entity with route, currentLocation, currentSegment, nextSegment, distances, times, isOffRoute
+    - _Requirements: 6.1, 6.5_
+  - [x] 2.6 Create SearchResult entity with id, name, address, location, type, distanceMeters
+    - _Requirements: 7.2, 7.3_
+  - [x] 2.7 Create Bookmark entity with id, name, location, category, createdAt, lastUsedAt
+    - _Requirements: 16.2, 16.8_
+  - [x] 2.8 Create BookmarkCategory enum with home, work, favorite, other
+    - _Requirements: 16.9_
+
+- [x] 3. Domain Layer - Repository Interfaces
+  - [x] 3.1 Define RouteRepository interface with calculateRoute, recalculateRoute methods
+    - _Requirements: 5.1, 6.5_
+  - [x] 3.2 Define NavigationRepository interface with startNavigation, stopNavigation, getNavigationState, updateLocation methods
+    - _Requirements: 6.1, 6.7_
+  - [x] 3.3 Define MapRepository interface with getAvailableRegions, getDownloadedRegions, downloadRegion, deleteRegion, registerMapFile methods
+    - _Requirements: 3.1, 3.2, 3.7_
+  - [x] 3.4 Define LocationRepository interface with getLocationStream, getCurrentLocation, requestPermissions, hasPermissions methods
+    - _Requirements: 4.1, 4.2_
+  - [x] 3.5 Define SearchRepository interface with search, searchByCategory methods
+    - _Requirements: 7.1, 7.4_
+  - [x] 3.6 Define BookmarkRepository interface with getAllBookmarks, getBookmarksByCategory, saveBookmark, updateBookmark, deleteBookmark methods
+    - _Requirements: 16.1, 16.2, 16.3, 16.6, 16.7, 16.9_
+
+- [x] 4. Domain Layer - Use Cases
+  - [x] 4.1 Implement CalculateRouteUseCase with vehicle mode enforcement
+    - _Requirements: 5.1, 2.3_
+  - [x] 4.2 Implement StartNavigationUseCase with default voice guidance enabled
+    - _Requirements: 6.1, 14.1_
+  - [x] 4.3 Implement DownloadMapRegionUseCase with progress streaming
+    - _Requirements: 3.2, 3.3_
+  - [x] 4.4 Implement SearchPlacesUseCase with downloaded region filtering
+    - _Requirements: 7.1_
+  - [x] 4.5 Implement GetAvailableRegionsUseCase
+    - _Requirements: 3.1_
+  - [x] 4.6 Implement TrackLocationUseCase with permission checking
+    - _Requirements: 4.1, 4.2_
+  - [ ]\* 4.7 Write property tests for use cases
+    - **Property 1: Vehicle Mode Routing** - For any route calculation, mode is VehicleMode
+    - **Validates: Requirements 2.3, 5.1**
+    - **Property 11: Navigation State Transitions** - Starting navigation sets isNavigating=true, enables tracking
+    - **Validates: Requirements 6.1, 9.4, 14.1**
+
+- [x] 5. Data Layer - Data Sources
+  - [x] 5.1 Implement MapEngineDataSource wrapping agus_maps_flutter APIs
+    - Initialize engine with initializeEngine(storagePath)
+    - Implement registerMap(filePath, version)
+    - Implement setMapView(lat, lon, zoom)
+    - _Requirements: 2.1, 2.6_
+  - [x] 5.2 Implement MapDownloadDataSource using MirrorService from agus_maps_flutter
+    - Implement getAvailableRegions() fetching from CDN
+    - Implement downloadRegion() with progress streaming
+    - _Requirements: 3.1, 3.2, 3.3_
+  - [x] 5.3 Implement MapStorageDataSource using MwmStorage from agus_maps_flutter
+    - Implement getDownloadedMaps()
+    - Implement saveMapMetadata(metadata)
+    - Implement deleteMapMetadata(regionName)
+    - _Requirements: 3.6, 3.7_
+  - [x] 5.4 Implement LocationDataSource wrapping geolocator package
+    - Implement getPositionStream() with error handling
+    - Implement getCurrentPosition()
+    - Implement requestPermission() and checkPermission()
+    - _Requirements: 4.1, 4.2_
+  - [x] 5.5 Implement BookmarkDataSource using shared_preferences
+    - Implement getAllBookmarks()
+    - Implement saveBookmark(bookmark)
+    - Implement deleteBookmark(id)
+    - Serialize/deserialize Bookmark objects to JSON
+    - _Requirements: 16.2, 16.6, 16.8_
+  - [ ]\* 5.6 Write unit tests for data sources
+    - Test MapEngineDataSource initialization
+    - Test MapDownloadDataSource region fetching
+    - Test MapStorageDataSource CRUD operations
+    - Test LocationDataSource permission handling
+    - _Requirements: 2.1, 3.1, 3.6, 4.1_
+
+- [x] 6. Data Layer - Repository Implementations
+  - [x] 6.1 Implement RouteRepositoryImpl
+    - Use MapEngineDataSource for route calculation
+    - Cache calculated routes
+    - Implement recalculation logic for off-route scenarios
+    - _Requirements: 5.1, 6.5_
+  - [x] 6.2 Implement NavigationRepositoryImpl
+    - Manage navigation session state
+    - Track progress along route segments
+    - Detect off-route conditions (distance threshold)
+    - Calculate distances to turns and destination
+    - _Requirements: 6.1, 6.4, 6.5, 6.7_
+  - [x] 6.3 Implement MapRepositoryImpl
+    - Use MapStorageDataSource for metadata
+    - Use MapDownloadDataSource for downloads
+    - Use MapEngineDataSource for registration
+    - Implement download with direct-to-disk streaming
+    - Validate downloaded files (size, integrity)
+    - _Requirements: 3.2, 3.4, 3.6, 3.7, 11.4, 13.5_
+  - [x] 6.4 Implement LocationRepositoryImpl
+    - Wrap LocationDataSource
+    - Filter and smooth location updates
+    - Handle permission requests with user guidance
+    - _Requirements: 4.1, 4.2, 4.3_
+  - [x] 6.5 Implement SearchRepositoryImpl
+    - Use CoMaps search APIs via agus_maps_flutter
+    - Filter results to downloaded regions only
+    - Rank by relevance and distance
+    - Cache recent searches
+    - _Requirements: 7.1, 7.4_
+  - [x] 6.6 Implement BookmarkRepositoryImpl
+    - Use BookmarkDataSource for persistence
+    - Support CRUD operations for bookmarks
+    - Filter by category
+    - Sort by last used date
+    - _Requirements: 16.1, 16.2, 16.3, 16.6, 16.7, 16.9_
+  - [ ]\* 6.7 Write property tests for repositories
+    - **Property 3: Map Download Completeness** - Download saves file, metadata, registers with engine
+    - **Validates: Requirements 3.2, 3.4, 3.5, 3.6**
+    - **Property 5: Map Deletion Completeness** - Deletion removes file and metadata
+    - **Validates: Requirements 3.7**
+    - **Property 7: Metadata Persistence Round-Trip** - Save then retrieve returns same metadata
+    - **Validates: Requirements 3.6, 12.1**
+    - **Property 13: Off-Route Detection and Recalculation** - Deviation triggers recalculation
+    - **Validates: Requirements 6.5**
+    - **Property 16: Search Within Downloaded Regions** - Results only from downloaded regions
+    - **Validates: Requirements 7.1**
+    - **Property 33: Bookmark Persistence Round-Trip** - Bookmarks persist across restarts
+    - **Validates: Requirements 16.2, 16.8**
+
+- [x] 7. Checkpoint - Data Layer Complete
+  - Ensure all repository tests pass
+  - Verify data sources integrate correctly with external services
+  - Test map download and registration flow end-to-end
+  - Ask the user if questions arise
+
+- [x] 8. Presentation Layer - State Management (Blocs)
+  - [x] 8.1 Implement MapCubit
+    - State: MapState with location, zoom, route overlay
+    - Methods: moveToLocation, setZoom, showRoute, clearRoute
+    - _Requirements: 2.4, 5.2_
+  - [x] 8.2 Implement NavigationBloc
+    - Events: StartNavigation, UpdateLocation, StopNavigation
+    - States: Idle, Navigating, OffRoute, Arrived
+    - Listen to location updates and update navigation state
+    - Trigger voice guidance at turn points
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.7_
+  - [x] 8.3 Implement RouteBloc
+    - Events: CalculateRoute, RecalculateRoute, ClearRoute
+    - States: Initial, Calculating, Calculated, Error
+    - Use CalculateRouteUseCase
+    - _Requirements: 5.1, 5.6_
+  - [x] 8.4 Implement MapDownloadBloc
+    - Events: LoadRegions, DownloadRegion, DeleteRegion
+    - States: Loading, Loaded, Downloading, Error
+    - Stream download progress
+    - _Requirements: 3.1, 3.2, 3.3, 3.7_
+  - [x] 8.5 Implement SearchBloc
+    - Events: SearchQuery, SelectResult, ClearSearch
+    - States: Initial, Searching, Results, Error
+    - Use SearchPlacesUseCase
+    - _Requirements: 7.1, 7.2, 7.5_
+  - [x] 8.6 Implement LocationBloc
+    - Events: StartTracking, StopTracking, UpdateLocation
+    - States: Idle, Tracking, PermissionDenied, Error
+    - Use TrackLocationUseCase
+    - _Requirements: 4.1, 4.2, 13.2_
+  - [x] 8.7 Implement BookmarkBloc
+    - Events: LoadBookmarks, SaveBookmark, UpdateBookmark, DeleteBookmark, FilterByCategory
+    - States: Initial, Loading, Loaded, Saving, Error
+    - Use GetBookmarksUseCase, SaveBookmarkUseCase, DeleteBookmarkUseCase
+    - _Requirements: 16.1, 16.2, 16.3, 16.6, 16.7, 16.9_
+  - [ ]\* 8.8 Write unit tests for Blocs
+    - Test state transitions for each event
+    - Test error handling
+    - Mock use cases and verify interactions
+    - _Requirements: 6.1, 5.1, 3.2, 7.1, 4.2_
+
+- [x] 9. Presentation Layer - Map Screen
+  - [x] 9.1 Create MapScreen widget with AgusMap integration
+    - Initialize AgusMap widget with controller
+    - Set initial location and zoom
+    - Handle map ready callback
+    - _Requirements: 2.1, 2.2_
+  - [x] 9.2 Add location marker overlay
+    - Display user position marker
+    - Update marker on location changes
+    - Show accuracy circle when accuracy is low
+    - _Requirements: 4.3, 4.5, 4.6_
+  - [x] 9.3 Add route overlay rendering
+    - Draw route polyline on map
+    - Highlight current segment
+    - Show turn markers
+    - _Requirements: 5.2_
+  - [x] 9.4 Implement map gesture handling
+    - Pan, zoom, rotate gestures
+    - Double-tap to zoom
+    - Two-finger rotation
+    - _Requirements: 2.4_
+  - [x] 9.5 Add floating action buttons (search, downloads, settings)
+    - Large touch targets (minimum 48dp)
+    - High contrast colors
+    - _Requirements: 9.1_
+  - [ ]\* 9.6 Write widget tests for MapScreen
+    - Test map initialization
+    - Test location marker updates
+    - Test route overlay rendering
+    - Test gesture handling
+    - _Requirements: 2.1, 4.3, 5.2, 2.4_
+
+- [x] 10. Presentation Layer - Navigation Screen
+  - [x] 10.1 Create NavigationScreen widget
+    - Full-screen map view
+    - Overlay navigation UI on map
+    - _Requirements: 6.1_
+  - [x] 10.2 Add turn instruction display
+    - Large turn arrow icon
+    - Distance to turn (large font)
+    - Next turn preview (smaller)
+    - Street name display
+    - _Requirements: 6.2, 9.2_
+  - [x] 10.3 Add speed and speed limit display
+    - Current speed from GPS (large, prominent)
+    - Speed limit from map data
+    - Highlight warning when exceeding limit
+    - Support km/h and mph units
+    - _Requirements: 6.6, 15.1, 15.2, 15.3, 15.4, 15.5_
+  - [x] 10.4 Add ETA and distance display
+    - Estimated time of arrival
+    - Remaining distance
+    - Update in real-time
+    - _Requirements: 5.3_
+  - [x] 10.5 Add navigation controls
+    - Stop navigation button (large, accessible)
+    - Voice guidance toggle
+    - Settings button
+    - _Requirements: 6.7, 14.4, 9.1_
+  - [x] 10.6 Implement screen wake lock during navigation
+    - Keep screen on while navigating
+    - Release wake lock when navigation stops
+    - _Requirements: 9.4_
+  - [ ]\* 10.7 Write widget tests for NavigationScreen
+    - Test turn instruction updates
+    - Test speed display and warnings
+    - Test ETA updates
+    - Test control interactions
+    - _Requirements: 6.2, 15.3, 5.3, 6.7_
+  - [ ]\* 10.8 Write property tests for navigation UI
+    - **Property 12: Turn Instruction Progression** - Passing turn advances instruction
+    - **Validates: Requirements 6.4**
+    - **Property 14: Navigation Speed Display** - Speed and limit displayed correctly
+    - **Validates: Requirements 6.6, 15.1, 15.2, 15.3**
+    - **Property 15: Navigation Arrival Detection** - Arrival ends session
+    - **Validates: Requirements 6.7**
+
+- [x] 11. Presentation Layer - Search Screen
+  - [x] 11.1 Create SearchScreen widget
+    - Search input field with clear button
+    - Recent searches list
+    - Category filter chips
+    - _Requirements: 7.1, 7.4_
+  - [x] 11.2 Implement search results list
+    - Display result name, address, distance
+    - Large touch targets for list items
+    - Tap to select result
+    - _Requirements: 7.2, 9.1_
+  - [x] 11.3 Handle search result selection
+    - Center map on selected location
+    - Show marker
+    - Offer "Navigate here" button
+    - _Requirements: 7.3_
+  - [x] 11.4 Implement empty state
+    - Show "no results" message when search returns empty
+    - Suggest alternative queries
+    - _Requirements: 7.5_
+  - [ ]\* 11.5 Write widget tests for SearchScreen
+    - Test search input and submission
+    - Test results list rendering
+    - Test result selection
+    - Test empty state display
+    - _Requirements: 7.1, 7.2, 7.3, 7.5_
+  - [ ]\* 11.6 Write property tests for search
+    - **Property 17: Search Result Selection Updates Map** - Selection centers map
+    - **Validates: Requirements 7.3**
+    - **Property 18: Empty Search Results Handling** - Empty results show message
+    - **Validates: Requirements 7.5**
+
+- [x] 12. Presentation Layer - Bookmarks Screen
+  - [x] 12.1 Create BookmarksScreen widget
+    - List of all saved bookmarks
+    - Category filter dropdown (home, work, favorites, other)
+    - Add new bookmark floating action button
+    - _Requirements: 16.3, 16.9_
+  - [x] 12.2 Implement bookmark list items
+    - Display bookmark name, location, category
+    - Large touch targets for list items
+    - Swipe to delete gesture
+    - Tap to view on map
+    - _Requirements: 16.3, 16.4, 9.1_
+  - [x] 12.3 Implement bookmark actions
+    - Navigate to bookmark location
+    - Edit bookmark name and category
+    - Delete bookmark with confirmation
+    - _Requirements: 16.4, 16.5, 16.6, 16.7_
+  - [x] 12.4 Add bookmark markers to map
+    - Display bookmark markers on MapScreen
+    - Different marker colors for categories
+    - Tap marker to show bookmark details
+    - _Requirements: 16.10_
+  - [ ]\* 12.5 Write widget tests for BookmarksScreen
+    - Test bookmark list rendering
+    - Test category filtering
+    - Test bookmark actions (edit, delete, navigate)
+    - Test add bookmark flow
+    - _Requirements: 16.3, 16.6, 16.7, 16.9_
+  - [ ]\* 12.6 Write property tests for bookmarks
+    - **Property 34: Bookmark Display on Map** - Bookmarks show markers
+    - **Validates: Requirements 16.10**
+    - **Property 35: Bookmark Selection Navigation** - Selection centers map and offers route
+    - **Validates: Requirements 16.4, 16.5**
+    - **Property 36: Bookmark Deletion Completeness** - Deletion removes bookmark and marker
+    - **Validates: Requirements 16.6**
+    - **Property 37: Bookmark Category Filtering** - Filter shows only matching category
+    - **Validates: Requirements 16.9**
+
+- [x] 13. Presentation Layer - Map Downloads Screen
+  - [x] 13.1 Create MapDownloadsScreen widget
+    - List of available regions
+    - Downloaded regions section
+    - Storage usage display at top
+    - _Requirements: 3.1, 3.8_
+  - [x] 13.2 Implement region list items
+    - Region name and size
+    - Download button or downloaded indicator
+    - Delete button for downloaded regions
+    - Progress bar for active downloads
+    - _Requirements: 3.2, 3.3, 3.5, 3.7_
+  - [x] 13.3 Handle download actions
+    - Tap to download region
+    - Show progress during download
+    - Handle download errors with retry
+    - _Requirements: 3.2, 3.3, 13.1_
+  - [x] 13.4 Handle delete actions
+    - Confirm before deleting
+    - Update storage usage after deletion
+    - _Requirements: 3.7, 3.8_
+  - [ ]\* 12.5 Write widget tests for MapDownloadsScreen
+    - Test region list rendering
+    - Test download button interaction
+    - Test progress display
+    - Test delete confirmation
+    - _Requirements: 3.1, 3.2, 3.3, 3.7_
+  - [ ]\* 12.6 Write property tests for downloads
+    - **Property 4: Download Progress Reporting** - Progress increases monotonically
+    - **Validates: Requirements 3.3**
+    - **Property 6: Storage Calculation Accuracy** - Total equals sum of sizes
+    - **Validates: Requirements 3.8**
+    - **Property 25: Download Error Handling** - Errors show message and retry
+    - **Validates: Requirements 13.1**
+
+- [x] 14. Presentation Layer - Settings Screen
+  - [x] 14.1 Create SettingsScreen widget
+    - Theme selection (day/night/auto)
+    - Voice guidance toggle
+    - Units selection (metric/imperial)
+    - Map data management link
+    - About section
+    - \_Requirements: 8.1, 14.4, 15.4\*\*
+  - [x] 14.2 Implement theme switching
+    - Update app theme
+    - Update map style
+    - Persist preference
+    - _Requirements: 8.1, 8.2, 12.2_
+  - [x] 14.3 Implement voice guidance toggle
+    - Enable/disable voice
+    - Persist preference
+    - _Requirements: 14.4, 12.2_
+  - [x] 14.4 Implement units selection
+    - Switch between km/h and mph
+    - Persist preference
+    - Update all speed displays
+    - _Requirements: 15.4, 12.2_
+  - [ ]\* 14.5 Write widget tests for SettingsScreen
+    - Test theme switching
+    - Test voice toggle
+    - Test units selection
+    - _Requirements: 8.2, 14.4, 15.4_
+  - [ ]\* 14.6 Write property tests for settings
+    - **Property 21: User Preferences Persistence Round-Trip** - Preferences persist across restarts
+    - **Validates: Requirements 12.2**
+    - **Property 29: Voice Guidance Toggle** - Toggle changes voice state
+    - **Validates: Requirements 14.4**
+    - **Property 31: Speed Unit Display** - Speed shown in preferred units
+    - **Validates: Requirements 15.4**
+
+- [ ] 15. Checkpoint - Presentation Layer Complete
+  - Ensure all screens render correctly
+  - Test navigation between screens
+  - Verify Bloc state management works end-to-end
+  - Test on physical Android device
+  - Ask the user if questions arise
+
+- [x] 16. Voice Guidance Implementation
+  - [x] 16.1 Create VoiceGuidanceService
+    - Wrap text-to-speech functionality
+    - Support multiple languages
+    - Queue announcements
+    - _Requirements: 14.2, 14.3, 14.5_
+  - [x] 16.2 Integrate voice guidance with NavigationBloc
+    - Trigger announcements at turn points
+    - Announce turn direction and distance
+    - Respect voice enabled setting
+    - _Requirements: 6.3, 14.1, 14.2, 14.4_
+  - [x] 16.3 Implement announcement distance thresholds
+    - First announcement at 500m
+    - Second announcement at 100m
+    - Final announcement at turn point
+    - _Requirements: 6.3, 14.2_
+  - [ ]\* 16.4 Write unit tests for VoiceGuidanceService
+    - Test announcement queueing
+    - Test language support
+    - Test enabled/disabled state
+    - _Requirements: 14.2, 14.3, 14.4_
+  - [ ]\* 16.5 Write property tests for voice guidance
+    - **Property 30: Turn Voice Announcements** - Turns trigger voice announcements
+    - **Validates: Requirements 6.3, 14.2**
+
+- [x] 17. Theme and Styling
+  - [x] 17.1 Create theme definitions
+    - Day mode theme (light colors, high contrast)
+    - Night mode theme (dark colors, reduced brightness)
+    - Define color palette for driving visibility
+    - _Requirements: 8.1, 8.3, 8.4_
+  - [x] 17.2 Implement map style switching
+    - Listen to theme changes
+    - Update map style via agus_maps_flutter
+    - Ensure smooth transition
+    - _Requirements: 8.2_
+  - [x] 17.3 Apply car-optimized styling
+    - Large fonts for critical information
+    - High contrast colors
+    - Large touch targets (48dp minimum)
+    - _Requirements: 9.1, 9.2, 9.5_
+  - [ ]\* 17.4 Write tests for theme switching
+    - **Property 19: Theme Synchronization** - System theme change updates map
+    - **Validates: Requirements 8.2**
+    - **Property 20: Touch Target Minimum Size** - All interactive elements >= 48dp
+    - **Validates: Requirements 9.1**
+
+- [x] 18. Persistence and State Restoration
+  - [x] 18.1 Implement preferences persistence
+    - Save theme, voice, units settings
+    - Use shared_preferences
+    - _Requirements: 12.2_
+  - [x] 18.2 Implement map view state persistence
+    - Save last map location and zoom
+    - Restore on app restart
+    - _Requirements: 12.3_
+  - [x] 18.3 Implement search history persistence
+    - Save recent searches
+    - Limit to last 20 searches
+    - _Requirements: 12.4_
+  - [x] 18.4 Implement favorites persistence
+    - Save favorite locations
+    - Support add/remove operations
+    - _Requirements: 12.5_
+  - [ ]\* 18.5 Write property tests for persistence
+    - **Property 22: Map View State Restoration** - Map view persists across restarts
+    - **Validates: Requirements 12.3**
+    - **Property 23: Search History Persistence** - Searches persist across restarts
+    - **Validates: Requirements 12.4**
+    - **Property 24: Favorite Locations Persistence Round-Trip** - Favorites persist across restarts
+    - **Validates: Requirements 12.5**
+
+- [x] 19. Error Handling and Validation
+  - [x] 19.1 Implement comprehensive error handling in repositories
+    - Wrap all external calls in try-catch
+    - Return Result types with error details
+    - Log errors with stack traces
+    - _Requirements: 13.4_
+  - [x] 19.2 Implement map file validation
+    - Check file existence
+    - Verify file size matches metadata
+    - Attempt to open with CoMaps engine
+    - _Requirements: 13.5_
+  - [x] 19.3 Implement user-friendly error messages
+    - Map technical errors to user messages
+    - Provide actionable guidance
+    - Include retry options where appropriate
+    - _Requirements: 13.1, 13.2, 13.3, 13.4_
+  - [x] 19.4 Implement permission error handling
+    - Detect permission denial
+    - Show guidance to enable in settings
+    - Provide deep link to app settings
+    - _Requirements: 13.2_
+  - [ ]\* 19.5 Write property tests for error handling
+    - **Property 10: Route Calculation Error Handling** - Errors show reason
+    - **Validates: Requirements 5.6, 13.3**
+    - **Property 26: Permission Error Guidance** - Permission denial shows guidance
+    - **Validates: Requirements 13.2**
+    - **Property 27: General Error Handling** - Errors logged and displayed
+    - **Validates: Requirements 13.4**
+    - **Property 28: Map File Validation** - Validation detects corruption
+    - **Validates: Requirements 13.5**
+
+- [ ] 20. Checkpoint - Core Features Complete
+  - Test complete user flows end-to-end
+  - Verify offline functionality (disable network)
+  - Test on low-end Android device
+  - Check memory usage during long navigation
+  - Ask the user if questions arise
+
+- [x] 21. Integration and Polish
+  - [x] 21.1 Implement app initialization flow
+    - Initialize CoMaps engine on startup
+    - Extract bundled map files (World.mwm, WorldCoasts.mwm)
+    - Register bundled maps with engine
+    - Request location permissions
+    - _Requirements: 2.1, 2.6, 4.1_
+  - [x] 21.2 Implement orientation change handling
+    - Preserve map state across orientation changes
+    - Adjust UI layout for landscape
+    - _Requirements: 2.5_
+  - [x] 21.3 Implement app lifecycle handling
+    - Pause location tracking when app is backgrounded
+    - Continue navigation in background (with notification)
+    - Resume tracking when app returns to foreground
+    - _Requirements: 6.1_
+  - [x] 21.4 Add loading states and progress indicators
+    - Show loading spinner during route calculation
+    - Show progress during map downloads
+    - Show loading state during search
+    - _Requirements: 3.3, 5.1, 7.1_
+  - [x] 21.5 Implement haptic feedback
+    - Vibrate on turn approach
+    - Vibrate on off-route detection
+    - Vibrate on arrival
+    - _Requirements: 6.2, 6.5, 6.7_
+  - [ ]\* 21.6 Write integration tests
+    - Test app startup to map display flow
+    - Test search to navigation flow
+    - Test download to map rendering flow
+    - Test off-route to reroute flow
+    - _Requirements: 2.1, 5.1, 3.2, 6.5_
+  - [ ]\* 21.7 Write property tests for state management
+    - **Property 2: Map State Persistence Across Orientation Changes** - State preserved
+    - **Validates: Requirements 2.5**
+    - **Property 8: Location Updates Affect Map State** - Location updates map
+    - **Validates: Requirements 4.2, 4.3, 4.4, 4.6**
+    - **Property 9: Route Calculation Produces Complete Data** - Routes have all required data
+    - **Validates: Requirements 5.2, 5.3**
+    - **Property 32: Speed Limit Conditional Display** - Speed limit shown only when available
+    - **Validates: Requirements 15.5**
+
+- [x] 22. Performance Optimization
+  - [x] 22.1 Implement location update debouncing
+    - Limit location updates to 1 per second during navigation
+    - Reduce battery usage
+    - _Requirements: 11.5_
+  - [x] 22.2 Implement search query debouncing
+    - Delay search until user stops typing (300ms)
+    - Reduce unnecessary searches
+    - _Requirements: 7.1_
+  - [x] 22.3 Implement route caching
+    - Cache calculated routes
+    - Reuse cached routes for same origin/destination
+    - _Requirements: 5.1_
+  - [x] 22.4 Implement memory management
+    - Release map resources when not visible
+    - Clear search results when not needed
+    - Limit search history size
+    - _Requirements: 11.1, 11.2, 11.3_
+  - [ ]\* 22.5 Write performance tests
+    - Test memory usage during 2-hour navigation
+    - Test frame rate during rapid zoom/pan
+    - Test route calculation time
+    - Test app startup time
+    - _Requirements: 11.5_
+
+- [ ] 23. Final Testing and Documentation
+  - [ ]\* 23.1 Run all property tests (100 iterations each)
+    - Verify all 32 properties pass
+    - Fix any failures
+    - _Requirements: All_
+  - [ ]\* 23.2 Run all unit tests
+    - Achieve 80%+ code coverage
+    - Fix any failures
+    - _Requirements: All_
+  - [ ]\* 23.3 Run integration tests on physical device
+    - Test complete user flows
+    - Test offline functionality
+    - Test long navigation sessions
+    - _Requirements: All_
+  - [ ] 23.4 Create user documentation
+    - How to download maps
+    - How to search and navigate
+    - How to change settings
+    - Troubleshooting guide
+    - _Requirements: All_
+  - [ ] 23.5 Create developer documentation
+    - Architecture overview
+    - How to add new features
+    - How to run tests
+    - How to build and deploy
+    - _Requirements: 1.1, 1.2, 1.3_
+
+- [ ] 24. Final Checkpoint
+  - All tests passing
+  - App runs smoothly on Android devices
+  - Offline functionality verified
+  - Memory usage stable during long sessions
+  - Ready for user acceptance testing
+  - Ask the user if questions arise
+
+## Notes
+
+- Tasks marked with `*` are optional testing tasks that can be skipped for faster MVP
+- Each task references specific requirements for traceability
+- Checkpoints ensure incremental validation and quality
+- Property tests validate universal correctness properties
+- Unit tests validate specific examples and edge cases
+- The implementation follows clean architecture with clear layer separation
+- Focus is on Android initially, with architecture supporting future platform expansion

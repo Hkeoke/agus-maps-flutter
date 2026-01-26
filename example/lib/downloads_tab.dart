@@ -1,0 +1,1495 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:agus_maps_flutter/mirror_service.dart';
+import 'package:agus_maps_flutter/mwm_storage.dart';
+import 'package:agus_maps_flutter/agus_maps_flutter.dart' as agus;
+import 'package:fuzzywuzzy/fuzzywuzzy.dart' as fuzz;
+import 'package:storage_space/storage_space.dart';
+import 'downloads_cache.dart';
+
+/// Minimum disk space required after download (128 MB).
+const int kMinRemainingSpaceBytes = 128 * 1024 * 1024;
+
+/// Warning threshold for low disk space (1 GB).
+const int kLowSpaceWarningBytes = 1024 * 1024 * 1024;
+
+/// Maximum concurrent downloads.
+const int kMaxConcurrentDownloads = 3;
+
+/// Fuzzy search threshold (0-100). Lower = more lenient matching.
+const int kFuzzySearchThreshold = 50;
+
+/// Loading status steps.
+enum LoadingStep {
+  idle,
+  checkingCache,
+  loadingFromCache,
+  validatingCache,
+  discoveringMirrors,
+  selectingMirror,
+  loadingRegions,
+  done,
+}
+
+extension LoadingStepMessage on LoadingStep {
+  String get message {
+    return switch (this) {
+      LoadingStep.idle => '',
+      LoadingStep.checkingCache => 'Checking local cache...',
+      LoadingStep.loadingFromCache => 'Loading from cache...',
+      LoadingStep.validatingCache => 'Validating cached data...',
+      LoadingStep.discoveringMirrors => 'Discovering available mirrors...',
+      LoadingStep.selectingMirror => 'Selecting fastest mirror...',
+      LoadingStep.loadingRegions => 'Loading regions...',
+      LoadingStep.done => 'Done!',
+    };
+  }
+}
+
+/// Check internet connectivity by attempting to reach Google's DNS.
+Future<bool> checkInternetConnectivity() async {
+  try {
+    final result = await InternetAddress.lookup(
+      'google.com',
+    ).timeout(const Duration(seconds: 5));
+    return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+  } on SocketException catch (_) {
+    return false;
+  } on TimeoutException catch (_) {
+    return false;
+  }
+}
+
+/// Downloads tab widget for managing map downloads.
+class DownloadsTab extends StatefulWidget {
+  final MwmStorage mwmStorage;
+  final VoidCallback? onMapsChanged;
+  final bool isVisible;
+
+  const DownloadsTab({
+    super.key,
+    required this.mwmStorage,
+    this.onMapsChanged,
+    this.isVisible = false,
+  });
+
+  @override
+  State<DownloadsTab> createState() => _DownloadsTabState();
+}
+
+class _DownloadsTabState extends State<DownloadsTab> {
+  final MirrorService _mirrorService = MirrorService();
+  final DownloadsCacheService _cacheService = DownloadsCacheService();
+
+  // Mirror discovery results - contains all mirrors with their status
+  List<MirrorDiscoveryResult> _discoveredMirrors = [];
+  
+  // Currently selected mirror and snapshot
+  MirrorDiscoveryResult? _selectedMirrorResult;
+  List<MwmRegion> _regions = [];
+
+  bool _isLoading = false;
+  LoadingStep _loadingStep = LoadingStep.idle;
+  String? _error;
+  bool _hasInternet = true;
+  Timer? _connectivityTimer;
+
+  // Search
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  List<MwmRegion> _filteredRegions = [];
+
+  // Download tracking - maps region name to progress (0.0 to 1.0)
+  final Map<String, double> _downloadProgress = {};
+  final Map<String, String> _downloadErrors = {};
+
+  // Track active downloads for limiting concurrent downloads
+  final Set<String> _activeDownloads = {};
+
+  // Disk space
+  int _availableSpaceBytes = 0;
+
+  // Track if we've initialized data (for lazy loading)
+  bool _hasInitialized = false;
+
+  // Track if data came from cache (for UI feedback)
+  bool _loadedFromCache = false;
+  
+  // UI state for mirror selector
+  bool _showMirrorSelector = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Don't init immediately - wait for visibility
+    // Periodically check connectivity
+    _connectivityTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _checkConnectivity(),
+    );
+    // Listen to search input
+    _searchController.addListener(_onSearchChanged);
+  }
+
+  @override
+  void didUpdateWidget(DownloadsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Lazy load: only init when tab becomes visible for the first time
+    if (widget.isVisible && !_hasInitialized && !_isLoading) {
+      _hasInitialized = true;
+      // Use post-frame callback to avoid blocking UI
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _init();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _connectivityTimer?.cancel();
+    _searchController.dispose();
+    _mirrorService.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged() {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query == _searchQuery) return;
+
+    setState(() {
+      _searchQuery = query;
+      _applySearch();
+    });
+  }
+
+  void _applySearch() {
+    if (_searchQuery.isEmpty) {
+      _filteredRegions = List.from(_regions);
+      return;
+    }
+
+    // Use extractAllSorted for relevance-sorted fuzzy search
+    // This returns results sorted by best match score (highest first)
+    final results = fuzz.extractAllSorted<MwmRegion>(
+      query: _searchQuery,
+      choices: _regions,
+      cutoff: kFuzzySearchThreshold,
+      getter: (region) => region.displayName,
+    );
+
+    _filteredRegions = results.map((r) => r.choice).toList();
+  }
+
+  Future<void> _checkConnectivity() async {
+    final hasInternet = await checkInternetConnectivity();
+    if (mounted && hasInternet != _hasInternet) {
+      setState(() => _hasInternet = hasInternet);
+      // If we regained connectivity and have no regions, retry
+      if (hasInternet && _regions.isEmpty && _error != null) {
+        _init();
+      }
+    }
+  }
+
+  Future<void> _init({bool forceRefresh = false}) async {
+    setState(() {
+      _isLoading = true;
+      _loadingStep = LoadingStep.checkingCache;
+      _error = null;
+    });
+
+    try {
+      // Validate MWM storage against actual files on disk.
+      // After reinstall, metadata may reference deleted files.
+      final orphanedRegions = await widget.mwmStorage.getOrphanedRegions();
+      if (orphanedRegions.isNotEmpty) {
+        debugPrint(
+          '[Downloads] Found ${orphanedRegions.length} orphaned MWM entries: '
+          '$orphanedRegions',
+        );
+        await widget.mwmStorage.pruneOrphaned();
+        debugPrint('[Downloads] Pruned orphaned MWM metadata');
+      }
+
+      // First check connectivity
+      _hasInternet = await checkInternetConnectivity();
+
+      // Try to load from cache first (unless forcing refresh)
+      if (!forceRefresh) {
+        _setLoadingStep(LoadingStep.loadingFromCache);
+        final cached = await _cacheService.loadCache();
+
+        if (cached != null) {
+          debugPrint(
+            '[Downloads] Found cached data with ${cached.regions.length} regions',
+          );
+
+          // Validate cache in background if we have internet
+          if (_hasInternet) {
+            _setLoadingStep(LoadingStep.validatingCache);
+            final isValid = await _cacheService.validateCache(cached);
+
+            if (!isValid) {
+              debugPrint('[Downloads] Cache invalid, will refresh from server');
+            } else {
+              // Use cached data - create a discovery result for the cached mirror
+              final cachedMirror = cached.mirror;
+              _selectedMirrorResult = MirrorDiscoveryResult(
+                mirror: cachedMirror,
+                latestSnapshot: cached.snapshot,
+              );
+              _discoveredMirrors = [_selectedMirrorResult!];
+              _regions = cached.regions;
+              _filteredRegions = List.from(_regions);
+              _loadedFromCache = true;
+
+              // Update disk space
+              await _updateDiskSpace();
+
+              if (mounted) {
+                setState(() {
+                  _isLoading = false;
+                  _loadingStep = LoadingStep.done;
+                });
+              }
+
+              debugPrint(
+                '[Downloads] Loaded ${_regions.length} regions from cache',
+              );
+
+              // Discover mirrors in background to update availability
+              _discoverMirrorsInBackground();
+              return;
+            }
+          } else {
+            // No internet, use cache anyway
+            final cachedMirror = cached.mirror;
+            _selectedMirrorResult = MirrorDiscoveryResult(
+              mirror: cachedMirror,
+              latestSnapshot: cached.snapshot,
+            );
+            _discoveredMirrors = [_selectedMirrorResult!];
+            _regions = cached.regions;
+            _filteredRegions = List.from(_regions);
+            _loadedFromCache = true;
+
+            await _updateDiskSpace();
+
+            if (mounted) {
+              setState(() {
+                _isLoading = false;
+                _loadingStep = LoadingStep.done;
+              });
+            }
+            debugPrint('[Downloads] No internet, using cached data');
+            return;
+          }
+        }
+      }
+
+      // No cache or forced refresh - need internet
+      if (!_hasInternet) {
+        throw Exception(
+          'No internet connection. Please check your network settings.',
+        );
+      }
+
+      // Discover all mirrors and their availability
+      _setLoadingStep(LoadingStep.discoveringMirrors);
+      debugPrint('[Downloads] Discovering available mirrors...');
+      _discoveredMirrors = await _mirrorService.discoverMirrors();
+      
+      final operationalMirrors = _discoveredMirrors.where((m) => m.isOperational).toList();
+      debugPrint('[Downloads] Found ${operationalMirrors.length}/${_discoveredMirrors.length} operational mirrors');
+      
+      for (final result in _discoveredMirrors) {
+        debugPrint('[Downloads]   ${result.mirror.name}: ${result.statusText}');
+      }
+
+      // Select fastest available mirror
+      _setLoadingStep(LoadingStep.selectingMirror);
+      if (operationalMirrors.isEmpty) {
+        throw Exception(
+          'No mirrors available. All mirror servers may be down.',
+        );
+      }
+      
+      _selectedMirrorResult = operationalMirrors.first;
+      debugPrint('[Downloads] Selected mirror: ${_selectedMirrorResult!.mirror.name}');
+
+      // Load regions
+      _setLoadingStep(LoadingStep.loadingRegions);
+      await _loadRegions();
+
+      // Save to cache
+      if (_regions.isNotEmpty && _selectedMirrorResult != null) {
+        await _cacheService.saveCache(
+          CachedDownloadsData(
+            mirrorName: _selectedMirrorResult!.mirror.name,
+            mirrorBaseUrl: _selectedMirrorResult!.mirror.baseUrl,
+            snapshotVersion: _selectedMirrorResult!.latestSnapshot!.version,
+            regions: _regions,
+            cachedAt: DateTime.now(),
+          ),
+        );
+      }
+
+      _loadedFromCache = false;
+
+      // Get disk space
+      await _updateDiskSpace();
+
+      _error = null;
+    } catch (e, stackTrace) {
+      debugPrint('[Downloads] Error: $e');
+      debugPrint('[Downloads] Stack: $stackTrace');
+      _error = e.toString();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _loadingStep = LoadingStep.done;
+        });
+      }
+    }
+  }
+
+  void _setLoadingStep(LoadingStep step) {
+    if (mounted) {
+      setState(() => _loadingStep = step);
+    }
+    debugPrint('[Downloads] ${step.message}');
+  }
+
+  /// Discover mirrors in background to update availability display.
+  Future<void> _discoverMirrorsInBackground() async {
+    if (!_hasInternet) return;
+
+    try {
+      final results = await _mirrorService.discoverMirrors();
+      if (mounted && results.isNotEmpty) {
+        setState(() {
+          _discoveredMirrors = results;
+        });
+        debugPrint(
+          '[Downloads] Background discovery found ${results.where((m) => m.isOperational).length} operational mirrors',
+        );
+      }
+    } catch (e) {
+      debugPrint('[Downloads] Background mirror discovery failed: $e');
+    }
+  }
+
+  Future<void> _loadRegions() async {
+    if (_selectedMirrorResult == null || _selectedMirrorResult!.latestSnapshot == null) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final snapshot = _selectedMirrorResult!.latestSnapshot!;
+      debugPrint(
+        '[Downloads] Loading regions for snapshot ${snapshot.version}...',
+      );
+      _regions = await _mirrorService.getRegions(
+        _selectedMirrorResult!.mirror,
+        snapshot,
+      );
+      _filteredRegions = List.from(_regions);
+      _applySearch(); // Re-apply any existing search
+      debugPrint('[Downloads] Found ${_regions.length} regions');
+      _error = null;
+
+      // Update cache with new regions
+      if (_regions.isNotEmpty) {
+        await _cacheService.saveCache(
+          CachedDownloadsData(
+            mirrorName: _selectedMirrorResult!.mirror.name,
+            mirrorBaseUrl: _selectedMirrorResult!.mirror.baseUrl,
+            snapshotVersion: snapshot.version,
+            regions: _regions,
+            cachedAt: DateTime.now(),
+          ),
+        );
+      }
+    } catch (e, stackTrace) {
+      debugPrint('[Downloads] Error loading regions: $e');
+      debugPrint('[Downloads] Stack: $stackTrace');
+      _error = e.toString();
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+  
+  /// Switch to a different mirror and reload regions.
+  Future<void> _switchMirror(MirrorDiscoveryResult newMirror) async {
+    if (!newMirror.isOperational) {
+      _showError('Mirror "${newMirror.mirror.name}" is not available: ${newMirror.error}');
+      return;
+    }
+    
+    setState(() {
+      _selectedMirrorResult = newMirror;
+      _showMirrorSelector = false;
+    });
+    
+    debugPrint('[Downloads] Switching to mirror: ${newMirror.mirror.name}');
+    await _loadRegions();
+  }
+
+  Future<void> _updateDiskSpace() async {
+    try {
+      if (Platform.isAndroid || Platform.isIOS) {
+        // Use storage_space package for Android/iOS
+        final storageSpace = await getStorageSpace(
+          lowOnSpaceThreshold: kLowSpaceWarningBytes,
+          fractionDigits: 2,
+        );
+        _availableSpaceBytes = storageSpace.free;
+        debugPrint(
+          '[Downloads] Disk space from storage_space: '
+          '${storageSpace.freeSize} free, '
+          '${storageSpace.totalSize} total, '
+          '${storageSpace.usagePercent}% used',
+        );
+      } else {
+        // Desktop platforms (macOS, Linux, Windows) - skip disk space check
+        // Use a large default to allow downloads without restrictions
+        _availableSpaceBytes = 100 * 1024 * 1024 * 1024; // 100 GB
+        debugPrint('[Downloads] Desktop platform - skipping disk space check');
+      }
+    } catch (e, stackTrace) {
+      debugPrint('[Downloads] Error getting disk space: $e');
+      debugPrint('[Downloads] Stack: $stackTrace');
+      // Fallback to a large default to allow downloads
+      _availableSpaceBytes = 100 * 1024 * 1024 * 1024; // 100 GB
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// Check if we can start a new download (respecting concurrent limit).
+  bool get _canStartDownload =>
+      _activeDownloads.length < kMaxConcurrentDownloads;
+
+  /// Start downloading a region.
+  Future<void> _downloadRegion(MwmRegion region) async {
+    if (_selectedMirrorResult == null || _selectedMirrorResult!.latestSnapshot == null) return;
+
+    // Check concurrent download limit
+    if (!_canStartDownload) {
+      _showError(
+        'Maximum $kMaxConcurrentDownloads concurrent downloads allowed. '
+        'Please wait for a download to complete.',
+      );
+      return;
+    }
+
+    final url = _mirrorService.getDownloadUrl(
+      _selectedMirrorResult!.mirror,
+      _selectedMirrorResult!.latestSnapshot!,
+      region,
+    );
+
+    // Get file size (use region metadata, fallback to HEAD request if 0)
+    int fileSize = region.sizeBytes > 0
+        ? region.sizeBytes
+        : (await _mirrorService.getFileSize(url) ?? 0);
+
+    // Check disk space
+    final remainingAfter = _availableSpaceBytes - fileSize;
+    final availableMb = _availableSpaceBytes ~/ (1024 * 1024);
+    final fileSizeMb = fileSize ~/ (1024 * 1024);
+    final remainingMbAfter = remainingAfter ~/ (1024 * 1024);
+
+    debugPrint(
+      '[Downloads] Disk space check: '
+      'available=$availableMb MB, fileSize=$fileSizeMb MB, '
+      'remainingAfter=$remainingMbAfter MB, '
+      'minRequired=${kMinRemainingSpaceBytes ~/ (1024 * 1024)} MB',
+    );
+
+    if (remainingAfter < kMinRemainingSpaceBytes) {
+      _showError(
+        'Insufficient disk space.\n'
+        'Detected: $availableMb MB available\n'
+        'File size: $fileSizeMb MB\n'
+        'Need at least ${kMinRemainingSpaceBytes ~/ (1024 * 1024)} MB remaining after download.',
+      );
+      return;
+    }
+
+    if (remainingAfter < kLowSpaceWarningBytes) {
+      final remainingMb = remainingAfter ~/ (1024 * 1024);
+      final proceed = await _showWarning(
+        'After download, only $remainingMb MB will remain.\n\nContinue anyway?',
+      );
+      if (!proceed) return;
+    }
+
+    // Start download
+    setState(() {
+      _downloadProgress[region.name] = 0.0;
+      _downloadErrors.remove(region.name);
+      _activeDownloads.add(region.name);
+    });
+
+    try {
+      // Use the same directory as bundled maps: Documents/agus_maps_flutter/maps/
+      final dir = await getApplicationDocumentsDirectory();
+      final mapsDir = Directory('${dir.path}/agus_maps_flutter/maps');
+      await mapsDir.create(recursive: true);
+      final filePath = '${mapsDir.path}/${region.fileName}';
+      final tempPath = '$filePath.download'; // Temp file to prevent corrupted .mwm on crash
+      final tempFile = File(tempPath);
+      final finalFile = File(filePath);
+
+      // Stream to temp file first. If app is killed during download,
+      // the partial .download file won't be loaded by RegisterAllMaps().
+      final bytesWritten = await _mirrorService.downloadToFile(
+        url,
+        tempFile,
+        onProgress: (received, total) {
+          if (mounted && total > 0) {
+            setState(() {
+              _downloadProgress[region.name] = received / total;
+            });
+          }
+        },
+      );
+
+      // Rename temp file to final .mwm only after successful download
+      if (await finalFile.exists()) {
+        await finalFile.delete();
+      }
+      await tempFile.rename(filePath);
+
+      // Save metadata
+      final snapshot = _selectedMirrorResult!.latestSnapshot!;
+      await widget.mwmStorage.upsert(
+        MwmMetadata(
+          regionName: region.name,
+          snapshotVersion: snapshot.version,
+          fileSize: bytesWritten,
+          downloadDate: DateTime.now(),
+          filePath: filePath,
+          isBundled: false,
+        ),
+      );
+
+      // Register with map engine
+      final version = int.tryParse(snapshot.version);
+      final result = version != null
+          ? agus.registerSingleMapWithVersion(filePath, version)
+          : agus.registerSingleMap(filePath);
+      debugPrint('Registered ${region.name}: result=$result');
+
+      // Update disk space
+      _availableSpaceBytes -= bytesWritten;
+
+      // Notify parent
+      widget.onMapsChanged?.call();
+
+      if (mounted) {
+        setState(() {
+          _downloadProgress.remove(region.name);
+          _activeDownloads.remove(region.name);
+        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Downloaded ${region.name}')));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _downloadProgress.remove(region.name);
+          _activeDownloads.remove(region.name);
+          _downloadErrors[region.name] = e.toString();
+        });
+      }
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  }
+
+  Future<bool> _showWarning(String message) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.warning, color: Colors.orange),
+                SizedBox(width: 8),
+                Text('Low Disk Space'),
+              ],
+            ),
+            content: Text(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Download Anyway'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // No internet connection banner
+        if (!_hasInternet)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+            color: Colors.red,
+            child: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.wifi_off, color: Colors.white, size: 16),
+                SizedBox(width: 8),
+                Text(
+                  'No Internet Connection',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w500,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // Main content
+        Expanded(child: _buildMainContent()),
+      ],
+    );
+  }
+
+  Widget _buildMainContent() {
+    if (_isLoading && _regions.isEmpty) {
+      return _buildLoadingView();
+    }
+
+    if (_error != null && _regions.isEmpty) {
+      return _buildErrorView();
+    }
+
+    return _buildContent();
+  }
+
+  Widget _buildLoadingView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 48,
+              height: 48,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              _loadingStep.message,
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Please wait...',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorView() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            const SizedBox(height: 12),
+            Text(
+              'Error loading downloads',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _init,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    return Column(
+      children: [
+        // Header with selector and status
+        _buildHeader(),
+
+        // Region list
+        Expanded(child: _buildRegionList()),
+      ],
+    );
+  }
+
+  Widget _buildHeader() {
+    final downloadedCount = widget.mwmStorage.getAll().length;
+    final availableGb = _availableSpaceBytes / (1024 * 1024 * 1024);
+    final activeCount = _activeDownloads.length;
+    final operationalMirrorCount = _discoveredMirrors.where((m) => m.isOperational).length;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        border: Border(
+          bottom: BorderSide(color: Theme.of(context).dividerColor),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Title row with refresh button
+          Row(
+            children: [
+              Icon(
+                Icons.download,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Downloads',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              if (_loadedFromCache)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'cached',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.orange,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              if (activeCount > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.blue,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '$activeCount/$kMaxConcurrentDownloads',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 20),
+                onPressed: () => _init(forceRefresh: true),
+                tooltip: 'Refresh mirrors & regions',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Search bar
+          TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Search regions...',
+              hintStyle: const TextStyle(fontSize: 14),
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () {
+                        _searchController.clear();
+                      },
+                    )
+                  : null,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide.none,
+              ),
+              filled: true,
+              fillColor: Theme.of(context).colorScheme.surface,
+            ),
+            style: const TextStyle(fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          // Status row
+          Row(
+            children: [
+              _buildStatusChip(
+                Icons.check_circle,
+                '$downloadedCount installed',
+                Colors.green,
+              ),
+              const SizedBox(width: 8),
+              _buildStatusChip(
+                Icons.storage,
+                '${availableGb.toStringAsFixed(1)} GB free',
+                _availableSpaceBytes < kLowSpaceWarningBytes
+                    ? Colors.orange
+                    : Colors.grey,
+              ),
+              const SizedBox(width: 8),
+              _buildStatusChip(
+                Icons.dns,
+                '$operationalMirrorCount/${_discoveredMirrors.length} mirrors',
+                operationalMirrorCount > 0 ? Colors.blue : Colors.red,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Mirror selector (expandable)
+          _buildMirrorSelector(),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildMirrorSelector() {
+    final selectedMirror = _selectedMirrorResult;
+    final snapshot = selectedMirror?.latestSnapshot;
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Selected mirror display (tappable to expand)
+        InkWell(
+          onTap: () => setState(() => _showMirrorSelector = !_showMirrorSelector),
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: Theme.of(context).dividerColor,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  selectedMirror?.isOperational == true 
+                      ? Icons.check_circle 
+                      : Icons.error,
+                  size: 16,
+                  color: selectedMirror?.isOperational == true 
+                      ? Colors.green 
+                      : Colors.red,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        selectedMirror?.mirror.name ?? 'No mirror selected',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      if (snapshot != null)
+                        Text(
+                          'Version ${snapshot.version} • ${snapshot.formattedDate}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (selectedMirror?.mirror.latencyMs != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '${selectedMirror!.mirror.latencyMs}ms',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.green.shade700,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                const SizedBox(width: 8),
+                Icon(
+                  _showMirrorSelector 
+                      ? Icons.keyboard_arrow_up 
+                      : Icons.keyboard_arrow_down,
+                  size: 20,
+                  color: Colors.grey,
+                ),
+              ],
+            ),
+          ),
+        ),
+        // Expandable mirror list
+        if (_showMirrorSelector) ...[
+          const SizedBox(height: 4),
+          Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Theme.of(context).dividerColor),
+            ),
+            child: Column(
+              children: _discoveredMirrors.map((result) {
+                final isSelected = result.mirror.baseUrl == selectedMirror?.mirror.baseUrl;
+                return InkWell(
+                  onTap: result.isOperational 
+                      ? () => _switchMirror(result)
+                      : null,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isSelected 
+                          ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3)
+                          : null,
+                      border: Border(
+                        bottom: BorderSide(
+                          color: Theme.of(context).dividerColor.withOpacity(0.5),
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          result.isOperational 
+                              ? Icons.check_circle 
+                              : Icons.cancel,
+                          size: 16,
+                          color: result.isOperational 
+                              ? Colors.green 
+                              : Colors.red.shade300,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                result.mirror.name,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                                  color: result.isOperational 
+                                      ? null 
+                                      : Colors.grey,
+                                ),
+                              ),
+                              Text(
+                                result.statusText,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: result.isOperational 
+                                      ? Colors.grey.shade600
+                                      : Colors.red.shade300,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (result.mirror.latencyMs != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: _getLatencyColor(result.mirror.latencyMs!).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '${result.mirror.latencyMs}ms',
+                              style: TextStyle(
+                                fontSize: 9,
+                                color: _getLatencyColor(result.mirror.latencyMs!),
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        if (isSelected) ...[
+                          const SizedBox(width: 8),
+                          Icon(
+                            Icons.check,
+                            size: 16,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+  
+  Color _getLatencyColor(int latencyMs) {
+    if (latencyMs < 200) return Colors.green;
+    if (latencyMs < 500) return Colors.orange;
+    return Colors.red;
+  }
+
+  Widget _buildStatusChip(IconData icon, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 11, color: color)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRegionList() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_regions.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _hasInternet ? Icons.map_outlined : Icons.wifi_off,
+                size: 48,
+                color: Colors.grey,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _hasInternet
+                    ? 'No regions available'
+                    : 'No Internet Connection',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _hasInternet
+                    ? 'Could not load map regions from mirror servers.\nTry selecting a different snapshot or tap Refresh.'
+                    : 'Connect to the internet to browse and download maps.',
+                textAlign: TextAlign.center,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                onPressed: () => _init(forceRefresh: true),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Use filtered regions for display
+    final regionsToShow = _filteredRegions;
+
+    // Show "no results" if search returned nothing
+    if (_searchQuery.isNotEmpty && regionsToShow.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.search_off, size: 48, color: Colors.grey),
+              const SizedBox(height: 16),
+              Text(
+                'No regions found',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'No regions match "$_searchQuery".\nTry a different search term.',
+                textAlign: TextAlign.center,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Separate downloaded and available regions
+    final downloaded = <MwmRegion>[];
+    final available = <MwmRegion>[];
+
+    for (final region in regionsToShow) {
+      if (widget.mwmStorage.isDownloaded(region.name)) {
+        downloaded.add(region);
+      } else {
+        available.add(region);
+      }
+    }
+
+    // Build a flat list of items for ListView.builder
+    // This is much more efficient than using spread operators with 1000+ items
+    final items = <_ListItem>[];
+    
+    // Search result count
+    if (_searchQuery.isNotEmpty) {
+      items.add(_ListItem.searchCount(regionsToShow.length));
+    }
+    
+    // Downloaded section
+    if (downloaded.isNotEmpty) {
+      items.add(_ListItem.header('Installed (${downloaded.length})', Colors.green));
+      for (final r in downloaded) {
+        items.add(_ListItem.region(r, isDownloaded: true));
+      }
+    }
+    
+    // Available section
+    if (available.isNotEmpty) {
+      items.add(_ListItem.header('Available (${available.length})', Colors.blue));
+      for (final r in available) {
+        items.add(_ListItem.region(r, isDownloaded: false));
+      }
+    }
+
+    return ListView.builder(
+      itemCount: items.length,
+      itemBuilder: (context, index) {
+        final item = items[index];
+        switch (item.type) {
+          case _ListItemType.searchCount:
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                'Found ${item.count} region${item.count == 1 ? '' : 's'}',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              ),
+            );
+          case _ListItemType.header:
+            return _buildSectionHeader(item.title!, item.color!);
+          case _ListItemType.region:
+            return _buildRegionTile(item.region!, isDownloaded: item.isDownloaded!);
+        }
+      },
+    );
+  }
+
+  Widget _buildSectionHeader(String title, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: color.withOpacity(0.05),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          color: color,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRegionTile(MwmRegion region, {required bool isDownloaded}) {
+    final progress = _downloadProgress[region.name];
+    final error = _downloadErrors[region.name];
+    final isDownloading = progress != null;
+
+    return ListTile(
+      dense: true,
+      leading: Icon(
+        isDownloaded
+            ? Icons.check_circle
+            : isDownloading
+                ? Icons.downloading
+                : Icons.circle_outlined,
+        color: isDownloaded
+            ? Colors.green
+            : isDownloading
+                ? Colors.blue
+                : Colors.grey,
+        size: 20,
+      ),
+      title: Text(region.displayName, style: const TextStyle(fontSize: 14)),
+      subtitle: error != null
+          ? Text(
+              error,
+              style: const TextStyle(color: Colors.red, fontSize: 11),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            )
+          : Text('${region.sizeMB} MB', style: const TextStyle(fontSize: 11)),
+      trailing: _buildTrailing(region, isDownloaded, isDownloading, progress),
+      onTap: error != null
+          ? () {
+              setState(() {
+                _downloadErrors.remove(region.name);
+              });
+            }
+          : null,
+    );
+  }
+
+  Widget _buildTrailing(
+    MwmRegion region,
+    bool isDownloaded,
+    bool isDownloading,
+    double? progress,
+  ) {
+    if (isDownloading && progress != null) {
+      return SizedBox(
+        width: 72,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(value: progress, strokeWidth: 2),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '${(progress * 100).toInt()}%',
+              style: const TextStyle(fontSize: 11),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (isDownloaded) {
+      final meta = widget.mwmStorage.getByRegion(region.name);
+      final isBundled = meta?.isBundled == true;
+      
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: isBundled ? Colors.blue.shade100 : Colors.green.shade100,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              isBundled ? 'bundled' : 'installed',
+              style: TextStyle(
+                fontSize: 10,
+                color: isBundled ? Colors.blue.shade800 : Colors.green.shade800,
+              ),
+            ),
+          ),
+          // Show delete button for non-bundled maps
+          if (!isBundled)
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 20),
+              color: Colors.red.shade400,
+              onPressed: () => _confirmDeleteRegion(region),
+              tooltip: 'Delete map',
+            ),
+        ],
+      );
+    }
+
+    // Show download button
+    return IconButton(
+      icon: Icon(
+        Icons.download,
+        color: _canStartDownload ? Colors.blue : Colors.grey,
+      ),
+      onPressed: _canStartDownload ? () => _downloadRegion(region) : null,
+      tooltip: _canStartDownload
+          ? 'Download'
+          : 'Max $kMaxConcurrentDownloads concurrent downloads',
+    );
+  }
+
+  /// Show confirmation dialog before deleting a region.
+  Future<void> _confirmDeleteRegion(MwmRegion region) async {
+    final meta = widget.mwmStorage.getByRegion(region.name);
+    final sizeMb = meta != null
+        ? (meta.fileSize / (1024 * 1024)).toStringAsFixed(1)
+        : region.sizeMB;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.delete_forever, color: Colors.red),
+            SizedBox(width: 8),
+            Text('Delete Map'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to delete "${region.displayName}"?'),
+            const SizedBox(height: 8),
+            Text(
+              'This will free up $sizeMb MB of storage.',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'You can re-download it from the server at any time.',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _deleteRegion(region);
+    }
+  }
+
+  /// Delete a downloaded region.
+  Future<void> _deleteRegion(MwmRegion region) async {
+    debugPrint('[Downloads] Deleting ${region.name}...');
+    
+    final result = await widget.mwmStorage.deleteMap(region.name);
+    
+    if (result.success) {
+      // Update disk space
+      if (result.deletedBytes != null) {
+        _availableSpaceBytes += result.deletedBytes!;
+      }
+      
+      // Notify parent that maps changed
+      widget.onMapsChanged?.call();
+      
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Deleted ${region.displayName}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete: ${result.error}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+}
+
+/// Item types for the virtualized list
+enum _ListItemType { searchCount, header, region }
+
+/// Helper class for ListView.builder items
+class _ListItem {
+  final _ListItemType type;
+  final int? count;
+  final String? title;
+  final Color? color;
+  final MwmRegion? region;
+  final bool? isDownloaded;
+
+  const _ListItem._({
+    required this.type,
+    this.count,
+    this.title,
+    this.color,
+    this.region,
+    this.isDownloaded,
+  });
+
+  factory _ListItem.searchCount(int count) =>
+      _ListItem._(type: _ListItemType.searchCount, count: count);
+
+  factory _ListItem.header(String title, Color color) =>
+      _ListItem._(type: _ListItemType.header, title: title, color: color);
+
+  factory _ListItem.region(MwmRegion region, {required bool isDownloaded}) =>
+      _ListItem._(type: _ListItemType.region, region: region, isDownloaded: isDownloaded);
+}

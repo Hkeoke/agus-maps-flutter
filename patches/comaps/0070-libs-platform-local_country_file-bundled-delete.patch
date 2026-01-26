@@ -1,0 +1,17 @@
+diff --git a/libs/platform/local_country_file.cpp b/libs/platform/local_country_file.cpp
+index abcdef1..1234567 100644
+--- a/libs/platform/local_country_file.cpp
++++ b/libs/platform/local_country_file.cpp
+@@ -51,6 +51,12 @@ void LocalCountryFile::SyncWithDisk()
+ void LocalCountryFile::DeleteFromDisk(MapFileType type) const
+ {
+   ASSERT_LESS(base::Underlying(type), m_files.size(), ());
++
++  // Cannot delete files from bundle (they don't exist on disk in a normal directory).
++  // GetPath() would fail with an assertion because m_directory is empty for bundled files.
++  if (m_directory.empty())
++    return;
++
+   if (OnDisk(type) && !base::DeleteFileX(GetPath(type)))
+     LOG(LERROR, (type, "from", *this, "wasn't deleted from disk."));
+ }
