@@ -1,277 +1,230 @@
-# Problemas de Integración del Plugin Agus Maps
+# Plugin Integration Issues - Diagnóstico y Soluciones
 
-## Fecha: 2026-01-25
+## Problemas Identificados
 
-## Resumen
+### 1. Mapas descargados no se detectan
 
-La aplicación `rikera_app` NO está configurada correctamente para usar el plugin `agus_maps_flutter`. Faltan componentes críticos necesarios para que el mapa funcione.
+**Síntoma**: La aplicación no detecta los mapas que ya están descargados.
 
-## Problemas Críticos Identificados
+**Causa Raíz**:
 
-### 1. ❌ FALTA CONFIGURACIÓN DE ASSETS EN pubspec.yaml
+- Los mapas se registran correctamente durante la descarga
+- Pero `checkMapStatus()` puede estar devolviendo estado incorrecto
+- El motor CoMaps necesita que los mapas estén registrados ANTES de verificar el estado
 
-**Problema**: El archivo `rikera_app/pubspec.yaml` NO tiene la sección `flutter.assets` configurada.
-
-**Ubicación**: `rikera_app/pubspec.yaml`
-
-**Estado Actual**:
-
-```yaml
-flutter:
-  uses-material-design: true
-  # NO HAY ASSETS CONFIGURADOS
-```
-
-**Debe ser** (según ejemplo y documentación):
-
-```yaml
-flutter:
-  uses-material-design: true
-
-  assets:
-    # Mapas bundled mínimos requeridos
-    - assets/maps/World.mwm
-    - assets/maps/WorldCoasts.mwm
-    - assets/maps/icudt75l.dat
-
-    # Datos de CoMaps (REQUERIDOS)
-    - assets/comaps_data/
-    - assets/comaps_data/fonts/
-
-    # Strings de categorías (REQUERIDOS)
-    - assets/comaps_data/categories-strings/ar.json/
-    - assets/comaps_data/categories-strings/be.json/
-    # ... (ver example/pubspec.yaml para lista completa)
-
-    # Strings de países (REQUERIDOS)
-    - assets/comaps_data/countries-strings/ar.json/
-    - assets/comaps_data/countries-strings/be.json/
-    # ... (ver example/pubspec.yaml para lista completa)
-
-    # Símbolos del mapa (REQUERIDOS)
-    - assets/comaps_data/symbols/
-    - assets/comaps_data/symbols/6plus/
-    # ... (ver example/pubspec.yaml para lista completa)
-
-    # Estilos del mapa (REQUERIDOS)
-    - assets/comaps_data/styles/
-    - assets/comaps_data/styles/default/
-    # ... (ver example/pubspec.yaml para lista completa)
-```
-
-### 2. ❌ FALTA CARPETA DE ASSETS
-
-**Problema**: No existe la carpeta `rikera_app/assets/` con los archivos necesarios.
-
-**Archivos Faltantes**:
-
-- `rikera_app/assets/maps/World.mwm` - Mapa mundial de baja resolución (REQUERIDO)
-- `rikera_app/assets/maps/WorldCoasts.mwm` - Costas mundiales (REQUERIDO)
-- `rikera_app/assets/maps/icudt75l.dat` - Datos ICU para transliteración (REQUERIDO)
-- `rikera_app/assets/comaps_data/` - Directorio completo con datos del motor CoMaps (REQUERIDO)
-
-**Solución**: Copiar la carpeta `assets/` desde el SDK de agus_maps_flutter o desde `example/assets/`
-
-### 3. ⚠️ INICIALIZACIÓN INCORRECTA
-
-**Problema**: El servicio `AppInitializationService` intenta extraer mapas que no existen.
-
-**Ubicación**: `rikera_app/lib/core/services/app_initialization_service.dart`
-
-**Código Problemático**:
+**Solución**:
 
 ```dart
-// Línea ~70
-final path = await agus.extractMap('assets/maps/$mapFile');
-```
+// En MapScreen._onMapReady(), después de registrar los mapas bundled:
+context.read<MapCubit>().registerBundledMaps();
 
-**Error**: Esto fallará porque:
-
-1. Los assets no están declarados en pubspec.yaml
-2. Los archivos no existen en la carpeta assets/
-
-### 4. ⚠️ CONSTANTES INCORRECTAS
-
-**Problema**: Las constantes definen mapas bundled que no existen.
-
-**Ubicación**: `rikera_app/lib/core/constants/app_constants.dart`
-
-**Código**:
-
-```dart
-static const List<String> bundledMapFiles = ['World.mwm', 'WorldCoasts.mwm'];
-```
-
-**Nota**: Esto está correcto según la documentación, pero los archivos no existen en assets.
-
-### 5. ⚠️ FALTA REGISTRO DE MAPAS DESPUÉS DE CREAR SUPERFICIE
-
-**Problema**: El código intenta registrar mapas en `MapCubit.registerBundledMaps()` pero esto ocurre DESPUÉS de que el motor ya está inicializado.
-
-**Ubicación**: `rikera_app/lib/features/map/presentation/blocs/map/map_cubit.dart`
-
-**Flujo Actual**:
-
-1. `main.dart` → `AppInitializationService.initialize()` → Extrae e intenta registrar mapas
-2. `MapScreen._onMapReady()` → `MapCubit.registerBundledMaps()` → Intenta registrar de nuevo
-
-**Problema**: Según el ejemplo, los mapas deben:
-
-1. Extraerse durante la inicialización
-2. Guardarse las rutas
-3. Registrarse DESPUÉS de que la superficie del mapa esté lista
-4. Llamar a `invalidateMap()` y `forceRedraw()` después del registro
-
-## Comparación con el Ejemplo Funcional
-
-### Ejemplo (example/lib/main.dart) - ✅ CORRECTO
-
-```dart
-// 1. Extrae mapas y guarda rutas
-final worldPath = await agus_maps_flutter.extractMap('assets/maps/World.mwm');
-_mapPathsToRegister.add(worldPath);
-
-// 2. Inicializa el motor
-agus_maps_flutter.initWithPaths(dataPath, dataPath);
-
-// 3. Espera a que el mapa esté listo
-void _onMapReady() {
-  // 4. Registra mapas DESPUÉS de crear superficie
-  for (final path in _mapPathsToRegister) {
-    final result = agus_maps_flutter.registerSingleMapWithVersion(path, version);
+// Luego registrar TODOS los mapas descargados (no solo bundled):
+final downloadedMaps = await context.read<MapRepository>().getDownloadedRegions();
+for (final map in downloadedMaps.valueOrNull ?? []) {
+  if (!map.isBundled) {
+    await context.read<MapRepository>().registerMapFile(map.filePath);
   }
+}
 
-  // 5. Fuerza recarga de tiles
-  agus_maps_flutter.invalidateMap();
-  agus_maps_flutter.forceRedraw();
+// DESPUÉS verificar el estado del mapa
+await _checkMapDownload(currentLocation);
+```
+
+### 2. Círculo en vez de marcador de destino
+
+**Síntoma**: Al tocar el mapa aparece un círculo en vez de un marcador apropiado.
+
+**Causa Raíz**:
+El círculo es el "selection circle" por defecto de CoMaps cuando:
+
+1. No hay datos de POI (Points of Interest) en esa ubicación
+2. El motor no tiene información detallada del lugar
+3. Los archivos de datos (classificator.txt, types.txt) no están cargados correctamente
+
+**Diagnóstico**:
+
+```dart
+// Agregar logs en MapScreen._handleMapSelection():
+Future<void> _handleMapSelection() async {
+  final info = await _mapController.getSelectionInfo();
+  debugPrint('[MapScreen] Selection info: $info');
+
+  if (info != null && mounted) {
+    // Verificar qué información está disponible
+    debugPrint('[MapScreen] Title: ${info['title']}');
+    debugPrint('[MapScreen] Subtitle: ${info['subtitle']}');
+    debugPrint('[MapScreen] Type: ${info['type']}');
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => _buildPlacePage(info),
+    );
+  }
 }
 ```
 
-### rikera_app - ❌ INCORRECTO
+**Soluciones Posibles**:
+
+#### Opción A: Verificar extracción de archivos de datos
 
 ```dart
-// AppInitializationService.initialize()
-// Intenta extraer y registrar inmediatamente (ANTES de crear superficie)
-final path = await agus.extractMap('assets/maps/$mapFile');
-// NO guarda las rutas para registro posterior
-// NO llama a invalidateMap() ni forceRedraw()
+// En AppInitializationService.initialize():
+_logger.info('Extracting CoMaps data files...');
+final resourcePath = await agus.extractDataFiles();
+_logger.info('Resource path: $resourcePath');
 
-// MapCubit.registerBundledMaps()
-// Intenta registrar de nuevo pero usa getDownloadedRegions()
-// que depende de MapStorageDataSource
+// Verificar que los archivos existen:
+final dataDir = Directory(resourcePath);
+final files = await dataDir.list().toList();
+_logger.info('Data files extracted: ${files.length}');
+for (final file in files) {
+  _logger.info('  - ${file.path}');
+}
 ```
 
-## Solución Recomendada
+#### Opción B: Agregar marcador personalizado
 
-### Paso 1: Copiar Assets
+Si el motor no tiene datos del lugar, puedes agregar un marcador personalizado:
+
+```dart
+// En MapScreen, agregar un método para colocar un marcador temporal:
+void _addTemporaryMarker(double lat, double lon) {
+  // Crear un marcador visual en la UI de Flutter
+  // (overlay sobre el mapa)
+  setState(() {
+    _temporaryMarker = Location(
+      latitude: lat,
+      longitude: lon,
+      timestamp: DateTime.now(),
+    );
+  });
+}
+
+// En el build del AgusMap, agregar un Stack:
+Stack(
+  children: [
+    AgusMap(...),
+    if (_temporaryMarker != null)
+      Positioned(
+        // Calcular posición del marcador basado en lat/lon
+        child: Icon(
+          Icons.place,
+          color: Colors.red,
+          size: 48,
+        ),
+      ),
+  ],
+)
+```
+
+#### Opción C: Usar el sistema de routing para mostrar destino
+
+```dart
+// En _buildPlacePage, agregar botón para crear ruta:
+ElevatedButton.icon(
+  icon: const Icon(Icons.directions),
+  label: const Text('Ir aquí'),
+  onPressed: () {
+    Navigator.pop(context);
+    if (lat != null && lon != null) {
+      final dLat = lat is String ? double.parse(lat) : (lat as num).toDouble();
+      final dLon = lon is String ? double.parse(lon) : (lon as num).toDouble();
+
+      // Esto debería mostrar la ruta en el mapa
+      _mapController.buildRoute(dLat, dLon);
+    }
+  },
+)
+```
+
+## Pasos de Diagnóstico Recomendados
+
+### 1. Verificar registro de mapas
 
 ```bash
-# Desde la raíz del proyecto
-cp -r example/assets rikera_app/
+# Ejecutar la app y buscar en los logs:
+flutter run --verbose 2>&1 | grep -E "(Registering|registered|CheckMapStatus)"
 ```
 
-### Paso 2: Actualizar pubspec.yaml
+Deberías ver:
 
-Copiar la sección completa de `flutter.assets` desde `example/pubspec.yaml` a `rikera_app/pubspec.yaml`.
+```
+[MapCubit] Registering bundled maps with CoMaps engine...
+[MapCubit] Registering World...
+[MapCubit] Successfully registered World
+[MapCubit] Registering WorldCoasts...
+[MapCubit] Successfully registered WorldCoasts
+[MapScreen] CheckMapStatus: lat=14.5995 lon=120.9842 -> Status 1
+```
 
-### Paso 3: Refactorizar AppInitializationService
+Si ves `Status 2` (NotDownloaded) después de registrar, hay un problema.
 
-Cambiar el flujo para que:
-
-1. Solo extraiga los mapas y devuelva las rutas
-2. NO intente registrarlos inmediatamente
-3. Guarde las rutas en un lugar accesible (por ejemplo, en el servicio de DI)
-
-### Paso 4: Actualizar MapScreen
-
-Modificar `_onMapReady()` para:
-
-1. Obtener las rutas de mapas extraídos
-2. Registrar cada mapa con `registerSingleMapWithVersion()`
-3. Llamar a `invalidateMap()` y `forceRedraw()`
-
-### Paso 5: Verificar Versión de MWM
-
-Leer la versión desde `countries.txt` como lo hace el ejemplo:
+### 2. Verificar archivos de datos
 
 ```dart
-final file = File('$dataPath/countries.txt');
-final contents = await file.readAsString();
-final match = RegExp(r'"v"\s*:\s*(\d+)').firstMatch(contents);
-final version = int.tryParse(match.group(1)!);
+// Agregar en MapEngineDataSource.initializeEngine():
+final resourcePath = await agus.extractDataFiles();
+debugPrint('[MapEngine] Resource path: $resourcePath');
+
+// Verificar archivos críticos:
+final classificator = File('$resourcePath/classificator.txt');
+final types = File('$resourcePath/types.txt');
+debugPrint('[MapEngine] classificator.txt exists: ${await classificator.exists()}');
+debugPrint('[MapEngine] types.txt exists: ${await types.exists()}');
 ```
+
+### 3. Usar funciones de debug del plugin
+
+```dart
+// En MapScreen._onMapReady(), después de registrar mapas:
+_mapController.debugListMwms(); // Lista todos los MWMs registrados
+_mapController.debugCheckPoint(14.5995, 120.9842); // Verifica si Manila está cubierta
+```
+
+## Solución Temporal: Forzar re-registro de mapas descargados
+
+Agregar en `MapScreen._onMapReady()`:
+
+```dart
+void _onMapReady() async {
+  _isMapReady = true;
+
+  // ... código existente ...
+
+  // NUEVO: Re-registrar TODOS los mapas descargados
+  final mapRepo = context.read<MapRepository>();
+  final downloadedResult = await mapRepo.getDownloadedRegions();
+
+  if (downloadedResult.isSuccess) {
+    final maps = downloadedResult.valueOrNull ?? [];
+    debugPrint('[MapScreen] Re-registering ${maps.length} downloaded maps');
+
+    for (final map in maps) {
+      try {
+        await mapRepo.registerMapFile(map.filePath);
+        debugPrint('[MapScreen] Re-registered: ${map.name}');
+      } catch (e) {
+        debugPrint('[MapScreen] Failed to re-register ${map.name}: $e');
+      }
+    }
+
+    // Forzar redibujado después de registrar todos
+    _mapController.invalidateMap();
+    _mapController.forceRedraw();
+  }
+}
+```
+
+## Próximos Pasos
+
+1. **Agregar logs detallados** en los puntos críticos
+2. **Ejecutar con logs** y capturar la salida
+3. **Verificar el estado** de checkMapStatus antes y después de registrar
+4. **Probar con un mapa descargado** (ej: Philippines.mwm)
+5. **Verificar la información** que devuelve getSelectionInfo()
 
 ## Referencias
 
-- **Documentación del Plugin**: `README.md` - Sección "Quick Start"
-- **Ejemplo Funcional**: `example/lib/main.dart` - Método `_initData()` y `_onMapReadyAsync()`
-- **API Reference**: `doc/API.md` - Sección "Map File Registration"
-- **Guía de Arquitectura**: `GUIDE.md` - Sección "SDK Distribution Model"
-
-## Prioridad
-
-🔴 **CRÍTICO** - La aplicación NO funcionará sin estos cambios. El mapa no se renderizará correctamente.
-
-## ✅ Soluciones Aplicadas
-
-### 1. Assets Copiados
-
-```bash
-cp -r example/assets rikera_app/
-```
-
-✅ Completado - Los assets ahora existen en `rikera_app/assets/`
-
-### 2. pubspec.yaml Actualizado
-
-✅ Completado - Se agregó la configuración completa de assets al `rikera_app/pubspec.yaml`
-
-## 🔧 Próximos Pasos Pendientes
-
-### 3. Refactorizar AppInitializationService
-
-El flujo actual intenta registrar mapas inmediatamente después de extraerlos, pero según el ejemplo, los mapas deben registrarse DESPUÉS de que la superficie del mapa esté lista.
-
-**Cambios necesarios**:
-
-1. Modificar `AppInitializationService` para que solo extraiga y guarde rutas
-2. Crear un servicio o variable global para almacenar las rutas de mapas extraídos
-3. Actualizar `MapScreen._onMapReady()` para registrar los mapas correctamente
-
-### 4. Actualizar MapScreen.\_onMapReady()
-
-Debe seguir el patrón del ejemplo:
-
-```dart
-void _onMapReady() {
-  // 1. Obtener rutas de mapas extraídos
-  final mapPaths = /* obtener del servicio */;
-
-  // 2. Leer versión de MWM desde countries.txt
-  final version = /* leer versión */;
-
-  // 3. Registrar cada mapa
-  for (final path in mapPaths) {
-    final result = agus_maps_flutter.registerSingleMapWithVersion(path, version);
-    debugPrint('Registered $path: result=$result');
-  }
-
-  // 4. Forzar recarga de tiles
-  agus_maps_flutter.invalidateMap();
-  agus_maps_flutter.forceRedraw();
-
-  // 5. Debug
-  agus_maps_flutter.debugListMwms();
-}
-```
-
-### 5. Probar la Aplicación
-
-Una vez completados los pasos 3 y 4:
-
-```bash
-cd rikera_app
-flutter clean
-flutter pub get
-flutter run
-```
+- Plugin API: `lib/agus_maps_flutter.dart`
+- Registro de mapas: `rikera_app/lib/features/map/data/repositories/map_repository_impl.dart`
+- Inicialización: `rikera_app/lib/core/services/app_initialization_service.dart`

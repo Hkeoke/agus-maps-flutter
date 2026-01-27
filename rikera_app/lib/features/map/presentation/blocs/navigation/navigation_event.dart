@@ -1,3 +1,4 @@
+import 'package:agus_maps_flutter/agus_maps_flutter.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
 
 /// Base class for navigation events.
@@ -13,8 +14,9 @@ abstract class NavigationEvent {
 /// Requirements: 6.1
 class StartNavigation extends NavigationEvent {
   final Route route;
+  final AgusMapController? mapController;
 
-  const StartNavigation(this.route);
+  const StartNavigation(this.route, {this.mapController});
 }
 
 /// Event to update the current location during navigation.

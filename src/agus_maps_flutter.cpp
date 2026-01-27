@@ -760,6 +760,29 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeBuildRoute(
     auto & rm = g_framework->GetRoutingManager();
     rm.RemoveRoute(true); 
     
+    // Set router type to Vehicle (car) for navigation with voice guidance
+    // Vehicle router has soundDirection=true in RoutingSettings
+    rm.SetRouter(routing::RouterType::Vehicle);
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", "Router type set to Vehicle");
+    
+    // Set up a one-time listener for route building completion
+    rm.SetRouteBuildingListener([](routing::RouterResultCode code, storage::CountriesSet const &) {
+        if (code == routing::RouterResultCode::NoError || code == routing::RouterResultCode::HasWarnings) {
+            __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+                "Route built successfully, activating navigation mode");
+            
+            // Automatically activate navigation mode when route is ready
+            if (g_framework) {
+                g_framework->GetRoutingManager().FollowRoute();
+                __android_log_print(ANDROID_LOG_INFO, "AgusMapsFlutterNative", 
+                    "Navigation mode (FollowRoute) activated automatically");
+            }
+        } else {
+            __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", 
+                "Route building failed with code: %d", static_cast<int>(code));
+        }
+    });
+    
     // Set Start (My Position)
     RouteMarkData startPt;
     startPt.m_isMyPosition = true;
@@ -773,9 +796,22 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeBuildRoute(
     rm.AddRoutePoint(std::move(finishPt));
     
     rm.BuildRoute();
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", "nativeBuildRoute: Route building initiated");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeFollowRoute(
+    JNIEnv* env, jobject thiz) {
+    if (!g_framework) {
+        __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", "nativeFollowRoute: Framework not initialized");
+        return;
+    }
+    
+    auto & rm = g_framework->GetRoutingManager();
     rm.FollowRoute();
     
-    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", "nativeBuildRoute: Route initiated");
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", "nativeFollowRoute: Navigation mode activated");
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -872,4 +908,91 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeCleanupFrameC
     
     __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
         "nativeCleanupFrameCallback: Frame notification callback cleaned up");
+}
+
+// Navigation functions
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeGetRouteFollowingInfo(
+    JNIEnv* env, jobject thiz) {
+    if (!g_framework) return nullptr;
+    
+    RoutingManager & rm = g_framework->GetRoutingManager();
+    
+    if (!rm.IsRoutingActive())
+        return nullptr;
+    
+    routing::FollowingInfo info;
+    rm.GetRouteFollowingInfo(info);
+    
+    // Create JSON string with routing info
+    std::ostringstream json;
+    json << "{";
+    // Convert distances to meters
+    auto distToTargetMeters = info.m_distToTarget.To(platform::Distance::Units::Meters);
+    auto distToTurnMeters = info.m_distToTurn.To(platform::Distance::Units::Meters);
+    json << "\"distanceToTarget\":" << distToTargetMeters.GetDistance() << ",";
+    json << "\"distanceToTurn\":" << distToTurnMeters.GetDistance() << ",";
+    json << "\"timeToTarget\":" << info.m_time << ",";
+    json << "\"turn\":\"" << DebugPrint(info.m_turn) << "\",";
+    json << "\"nextTurn\":\"" << DebugPrint(info.m_nextTurn) << "\",";
+    json << "\"exitNum\":" << info.m_exitNum << ",";
+    json << "\"completionPercent\":" << info.m_completionPercent << ",";
+    json << "\"speedLimitMps\":" << (info.m_speedLimitMps > 0 ? info.m_speedLimitMps : 0) << ",";
+    json << "\"currentStreetName\":\"" << info.m_currentStreetName << "\",";
+    json << "\"nextStreetName\":\"" << info.m_nextStreetName << "\"";
+    json << "}";
+    
+    return env->NewStringUTF(json.str().c_str());
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeGenerateNotifications(
+    JNIEnv* env, jobject thiz, jboolean announceStreets) {
+    if (!g_framework) return nullptr;
+    
+    RoutingManager & rm = g_framework->GetRoutingManager();
+    
+    if (!rm.IsRoutingActive())
+        return nullptr;
+    
+    std::vector<std::string> notifications;
+    rm.GenerateNotifications(notifications, announceStreets);
+    
+    if (notifications.empty())
+        return nullptr;
+    
+    jclass stringClass = env->FindClass("java/lang/String");
+    jobjectArray result = env->NewObjectArray(notifications.size(), stringClass, nullptr);
+    
+    for (size_t i = 0; i < notifications.size(); ++i) {
+        jstring str = env->NewStringUTF(notifications[i].c_str());
+        env->SetObjectArrayElement(result, i, str);
+        env->DeleteLocalRef(str);
+    }
+    
+    return result;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeIsRouteFinished(
+    JNIEnv* env, jobject thiz) {
+    if (!g_framework) return JNI_FALSE;
+    
+    RoutingManager & rm = g_framework->GetRoutingManager();
+    return rm.IsRouteFinished() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeDisableFollowing(
+    JNIEnv* env, jobject thiz) {
+    if (!g_framework) return;
+    g_framework->GetRoutingManager().DisableFollowMode();
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeRemoveRoute(
+    JNIEnv* env, jobject thiz) {
+    if (!g_framework) return;
+    g_framework->GetRoutingManager().RemoveRoute(true /* deactivateFollowing */);
 }

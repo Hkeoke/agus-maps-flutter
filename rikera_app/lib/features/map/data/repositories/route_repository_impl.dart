@@ -4,6 +4,7 @@ import 'package:rikera_app/core/utils/logger.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
 import 'package:rikera_app/features/map/domain/repositories/route_repository.dart';
 import 'package:rikera_app/features/map/data/datasources/map_engine_datasource.dart';
+import 'package:rikera_app/features/map/data/datasources/map_engine_exception.dart';
 
 /// Implementation of [RouteRepository] using the CoMaps routing engine.
 ///

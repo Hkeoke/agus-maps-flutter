@@ -8,6 +8,7 @@ import 'package:rikera_app/features/map/domain/entities/entities.dart';
 import 'package:rikera_app/features/map/domain/repositories/map_repository.dart'
     as domain;
 import 'package:rikera_app/features/map/data/datasources/map_engine_datasource.dart';
+import 'package:rikera_app/features/map/data/datasources/map_engine_exception.dart';
 import 'package:rikera_app/features/map/data/datasources/map_storage_datasource.dart';
 import 'package:rikera_app/features/map/data/datasources/map_download_datasource.dart'
     as datasource;

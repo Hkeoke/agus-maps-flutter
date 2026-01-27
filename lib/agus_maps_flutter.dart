@@ -403,6 +403,60 @@ class AgusMapController {
     await _channel.invokeMethod('stopRouting');
   }
 
+  /// Get real-time route following information during navigation.
+  /// Returns a Map with navigation data including:
+  /// - distanceToTarget: Remaining distance to destination
+  /// - timeToTarget: Estimated time to arrival (seconds)
+  /// - distanceToTurn: Distance to next turn
+  /// - turn: Current turn instruction
+  /// - nextTurn: Next turn instruction
+  /// - speedMps: Current speed in meters per second
+  /// - speedLimitMps: Speed limit in meters per second
+  /// - completionPercent: Route completion percentage
+  Future<Map<String, dynamic>?> getRouteFollowingInfo() async {
+    final String? jsonStr = await _channel.invokeMethod('getRouteFollowingInfo');
+    if (jsonStr == null) return null;
+    try {
+      return jsonDecode(jsonStr) as Map<String, dynamic>;
+    } catch (e) {
+      debugPrint('Error decoding route following info: $e');
+      return null;
+    }
+  }
+
+  /// Generate turn-by-turn voice notifications.
+  /// Returns an array of strings to be spoken by TTS.
+  /// [announceStreets]: Whether to include street names in notifications.
+  Future<List<String>?> generateNotifications({bool announceStreets = true}) async {
+    final List<dynamic>? notifications = await _channel.invokeMethod(
+      'generateNotifications',
+      {'announceStreets': announceStreets},
+    );
+    return notifications?.cast<String>();
+  }
+
+  /// Check if the route has been completed.
+  Future<bool> isRouteFinished() async {
+    final bool? finished = await _channel.invokeMethod('isRouteFinished');
+    return finished ?? false;
+  }
+
+  /// Disable route following mode (but keep the route displayed).
+  Future<void> disableFollowing() async {
+    await _channel.invokeMethod('disableFollowing');
+  }
+
+  /// Remove the current route completely.
+  Future<void> removeRoute() async {
+    await _channel.invokeMethod('removeRoute');
+  }
+
+  /// Activate route following mode (navigation mode).
+  /// This should be called after a route has been successfully built.
+  Future<void> followRoute() async {
+    await _channel.invokeMethod('followRoute');
+  }
+
   /// Toggle My Position mode (Follow, Follow+Rotate, None).
   Future<void> switchMyPositionMode() async {
     await _channel.invokeMethod('switchMyPositionMode');

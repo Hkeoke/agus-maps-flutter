@@ -33,5 +33,7 @@ void LocalCountryFile::DeleteFromDisk(MapFileType type) const
 }
 ```
 
-### Importante
-Si ejecutas `dart run tool/build.dart`, este cambio **se perderá** (se sobrescribirá). Deberás volver a aplicarlo manualmente siguiendo estas instrucciones antes de compilar tu app.
+### Importante (Automatizado)
+Este cambio ahora está automatizado a través del sistema de parches (`patches/comaps/0070-libs-platform-local_country_file-bundled-delete.patch`). 
+
+Si ejecutas `dart run tool/build.dart`, el parche se aplicará automáticamente. Solo deberás seguir estas instrucciones si por alguna razón el parche fallara o si deseas aplicar el cambio manualmente en un entorno sin el sistema de parches.

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
+import 'package:rikera_app/core/theme/theme.dart';
 
 /// Widget displaying turn-by-turn navigation instructions.
 ///
@@ -24,13 +25,13 @@ class TurnInstructionWidget extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Row(
         children: [
           // Large turn arrow icon
           _buildTurnIcon(nextSegment.turnDirection),
 
-          const SizedBox(width: 16),
+          const SizedBox(width: AppSpacing.md),
 
           // Turn information
           Expanded(
@@ -99,7 +100,7 @@ class TurnInstructionWidget extends StatelessWidget {
   /// Builds a "continue straight" display when no turn is upcoming.
   Widget _buildContinueStraight(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(16.0),
+      padding: const EdgeInsets.all(AppSpacing.md),
       child: Row(
         children: [
           Container(
@@ -115,7 +116,7 @@ class TurnInstructionWidget extends StatelessWidget {
               color: Colors.white,
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

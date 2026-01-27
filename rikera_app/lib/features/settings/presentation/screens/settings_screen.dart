@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:rikera_app/core/di/injection_container.dart';
 import 'package:rikera_app/core/theme/theme.dart';
 import 'package:rikera_app/features/settings/domain/entities/app_settings.dart';
 import 'package:rikera_app/features/settings/presentation/bloc/settings_bloc.dart';
@@ -14,24 +13,23 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) => sl<SettingsBloc>()..add(const LoadSettings()),
-      child: Scaffold(
-        appBar: AppBar(title: const Text('Settings'), centerTitle: true),
-        body: BlocBuilder<SettingsBloc, SettingsState>(
-          builder: (context, state) {
-            if (state is SettingsLoading) {
-              return const Center(child: CircularProgressIndicator());
-            }
+    // Use the existing SettingsBloc from the app-level context
+    // instead of creating a new one
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings'), centerTitle: true),
+      body: BlocBuilder<SettingsBloc, SettingsState>(
+        builder: (context, state) {
+          if (state is SettingsLoading) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-            if (state is SettingsLoaded) {
-              return _buildSettingsList(context, state.settings);
-            }
+          if (state is SettingsLoaded) {
+            return _buildSettingsList(context, state.settings);
+          }
 
-            // Initial or error state - show defaults
-            return _buildSettingsList(context, AppSettings.defaults());
-          },
-        ),
+          // Initial or error state - show defaults
+          return _buildSettingsList(context, AppSettings.defaults());
+        },
       ),
     );
   }

@@ -1,61 +1,73 @@
+import 'package:equatable/equatable.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
 
-/// Represents the state of the map display.
-///
-/// This state tracks the current map view including location, zoom level,
-/// and any route overlay being displayed.
-class MapState {
-  /// Current center location of the map view
+/// Base class for all map states.
+abstract class MapState extends Equatable {
+  const MapState();
+
+  @override
+  List<Object?> get props => [];
+}
+
+/// Initial state before map is ready.
+class MapInitial extends MapState {
+  const MapInitial();
+}
+
+/// Map surface is ready for interaction.
+class MapReady extends MapState {
   final Location? location;
-
-  /// Current zoom level (higher = more zoomed in)
   final int zoom;
-
-  /// Route to display as an overlay (optional)
   final Route? routeOverlay;
 
-  const MapState({this.location, required this.zoom, this.routeOverlay});
+  const MapReady({
+    this.location,
+    this.zoom = 12,
+    this.routeOverlay,
+  });
 
-  /// Initial state with default values
-  factory MapState.initial() {
-    return const MapState(
-      location: null,
-      zoom: 12, // Default zoom level
-      routeOverlay: null,
-    );
-  }
+  @override
+  List<Object?> get props => [location, zoom, routeOverlay];
 
-  /// Creates a copy of this state with updated fields
-  MapState copyWith({
+  MapReady copyWith({
     Location? location,
     int? zoom,
     Route? routeOverlay,
     bool clearRoute = false,
   }) {
-    return MapState(
+    return MapReady(
       location: location ?? this.location,
       zoom: zoom ?? this.zoom,
       routeOverlay: clearRoute ? null : (routeOverlay ?? this.routeOverlay),
     );
   }
+}
+
+/// Map download is required for the current location.
+class MapDownloadRequired extends MapState {
+  final String countryName;
+  final Location location;
+
+  const MapDownloadRequired({
+    required this.countryName,
+    required this.location,
+  });
 
   @override
-  bool operator ==(Object other) {
-    if (identical(this, other)) return true;
+  List<Object?> get props => [countryName, location];
+}
 
-    return other is MapState &&
-        other.location == location &&
-        other.zoom == zoom &&
-        other.routeOverlay == routeOverlay;
-  }
+/// Map selection info is available to display.
+class MapSelectionAvailable extends MapState {
+  final Map<String, dynamic> selectionInfo;
 
-  @override
-  int get hashCode {
-    return location.hashCode ^ zoom.hashCode ^ routeOverlay.hashCode;
-  }
+  const MapSelectionAvailable(this.selectionInfo);
 
   @override
-  String toString() {
-    return 'MapState(location: $location, zoom: $zoom, hasRoute: ${routeOverlay != null})';
-  }
+  List<Object?> get props => [selectionInfo];
+}
+
+/// Re-registering downloaded maps.
+class MapReRegistering extends MapState {
+  const MapReRegistering();
 }

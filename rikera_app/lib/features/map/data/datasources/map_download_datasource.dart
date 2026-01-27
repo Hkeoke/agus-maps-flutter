@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:agus_maps_flutter/agus_maps_flutter.dart';
 
@@ -100,25 +101,33 @@ class MapDownloadDataSource {
         region,
       );
 
-      // Track progress
-      int lastBytesReceived = 0;
-      int totalBytes = 0;
+      // Create a stream controller for progress updates
+      final controller = StreamController<DownloadProgress>();
 
       // Download to file with progress callback
-      await _mirrorService.downloadToFile(
+      _mirrorService.downloadToFile(
         url,
         destination,
         onProgress: (received, total) {
-          lastBytesReceived = received;
-          totalBytes = total;
+          // Emit progress updates
+          controller.add(DownloadProgress(
+            bytesReceived: received,
+            totalBytes: total,
+          ));
         },
-      );
+      ).then((_) {
+        // Download completed successfully
+        controller.close();
+      }).catchError((error) {
+        // Download failed
+        controller.addError(MapDownloadException(
+          'Failed to download region ${region.name}: $error',
+        ));
+        controller.close();
+      });
 
-      // Yield final progress
-      yield DownloadProgress(
-        bytesReceived: lastBytesReceived,
-        totalBytes: totalBytes,
-      );
+      // Yield all progress events from the controller
+      yield* controller.stream;
     } catch (e) {
       throw MapDownloadException(
         'Failed to download region ${region.name}: $e',

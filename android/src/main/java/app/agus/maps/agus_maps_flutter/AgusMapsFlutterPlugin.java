@@ -242,6 +242,25 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
             String id = nativeGetCountryName(lat, lon);
             result.success(id);
         }
+    } else if (call.method.equals("getRouteFollowingInfo")) {
+        String json = nativeGetRouteFollowingInfo();
+        result.success(json);
+    } else if (call.method.equals("generateNotifications")) {
+        Boolean announceStreets = call.argument("announceStreets");
+        String[] notifications = nativeGenerateNotifications(announceStreets != null ? announceStreets : false);
+        result.success(notifications);
+    } else if (call.method.equals("isRouteFinished")) {
+        boolean finished = nativeIsRouteFinished();
+        result.success(finished);
+    } else if (call.method.equals("disableFollowing")) {
+        nativeDisableFollowing();
+        result.success(null);
+    } else if (call.method.equals("removeRoute")) {
+        nativeRemoveRoute();
+        result.success(null);
+    } else if (call.method.equals("followRoute")) {
+        nativeFollowRoute();
+        result.success(null);
     } else {
       result.notImplemented();
     }
@@ -262,6 +281,14 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
   private native void nativeOnLocationUpdate(double lat, double lon, double accuracy, double bearing, double speed, long time);
   private native void nativeSetMapStyle(int style);
   private native String nativeGetCountryName(double lat, double lon);
+  
+  // Navigation methods
+  private native String nativeGetRouteFollowingInfo();
+  private native String[] nativeGenerateNotifications(boolean announceStreets);
+  private native boolean nativeIsRouteFinished();
+  private native void nativeDisableFollowing();
+  private native void nativeRemoveRoute();
+  private native void nativeFollowRoute();
   
   private native void nativeInitFrameCallback();
   private native void nativeCleanupFrameCallback();

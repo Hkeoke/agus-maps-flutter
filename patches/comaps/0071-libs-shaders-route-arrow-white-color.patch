@@ -1,0 +1,27 @@
+diff --git a/libs/shaders/GL/route_arrow.fsh.glsl b/libs/shaders/GL/route_arrow.fsh.glsl
+index c926c7f50..309b3b6d2 100644
+--- a/libs/shaders/GL/route_arrow.fsh.glsl
++++ b/libs/shaders/GL/route_arrow.fsh.glsl
+@@ -31,6 +31,7 @@ void main()
+   finalColor.a *= u_opacity;
+   if (finalColor.a < 0.01)
+     discard;
+-  finalColor = vec4(mix(finalColor.rgb, u_maskColor.rgb, u_maskColor.a), finalColor.a);
++  // Use grayish white color by default, or use mask color if provided, and use texture alpha
++  finalColor = vec4(mix(vec3(0.94, 0.94, 0.96), u_maskColor.rgb, u_maskColor.a), finalColor.a);
+   v_FragColor = finalColor;
+ }
+diff --git a/libs/shaders/Metal/route.metal b/libs/shaders/Metal/route.metal
+index 8d5681aa4..0a8fd9029 100644
+--- a/libs/shaders/Metal/route.metal
++++ b/libs/shaders/Metal/route.metal
+@@ -170,7 +170,8 @@ fragment RouteArrowFragment_Output fsRouteArrow(const RouteArrowFragment_T in [[
+   output.depth = in.position.z;
+   if (color.a < 0.001)
+     output.depth = 1.0;
+-  output.color = float4(mix(color.rgb, uniforms.u_maskColor.rgb, uniforms.u_maskColor.a), color.a);
++  // Use grayish white color by default, or use mask color if provided, and use texture alpha
++  output.color = float4(mix(float3(0.94, 0.94, 0.96), uniforms.u_maskColor.rgb, uniforms.u_maskColor.a), color.a);
+   return output;
+ }
+ 

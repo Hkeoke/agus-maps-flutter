@@ -512,11 +512,15 @@ Future<void> _generateComapsData() async {
   print('');
 }
 
-/// Copy data files to example/assets
+/// Copy data files to example/assets and rikera_app/assets
 Future<void> _copyDataFiles() async {
   final repoRoot = getRepoRoot();
   final comapsDataDir = path.join(repoRoot, 'thirdparty', 'comaps', 'data');
-  final destDataDir = path.join(repoRoot, 'example', 'assets', 'comaps_data');
+  
+  final destDirs = [
+    path.join(repoRoot, 'example', 'assets'),
+    path.join(repoRoot, 'rikera_app', 'assets'),
+  ];
 
   print('=== Copy Data Files ===');
 
@@ -524,8 +528,6 @@ Future<void> _copyDataFiles() async {
     print('CoMaps data directory not found: $comapsDataDir');
     return;
   }
-
-  await ensureDir(destDataDir);
 
   // Essential files
   final essentialFiles = [
@@ -550,34 +552,44 @@ Future<void> _copyDataFiles() async {
     'editor.config',
   ];
 
-  for (final file in essentialFiles) {
-    final src = path.join(comapsDataDir, file);
-    if (await File(src).exists()) {
-      final dest = path.join(destDataDir, file);
-      await File(src).copy(dest);
-      print('  Copied: $file');
-    }
-  }
-
-  // Copy directories
-  final dirsToCopy = ['categories-strings', 'countries-strings', 'fonts', 'symbols', 'styles'];
-  for (final dir in dirsToCopy) {
-    final srcDir = path.join(comapsDataDir, dir);
-    if (await Directory(srcDir).exists()) {
-      final destDir = path.join(destDataDir, dir);
-      await copyPath(srcDir, destDir);
-      print('  Copied: $dir/');
-    }
-  }
-
-  // Copy ICU data
+  // ICU data source
   final icuSource = path.join(comapsDataDir, 'icudt75l.dat');
-  final mapsDir = path.join(repoRoot, 'example', 'assets', 'maps');
-  await ensureDir(mapsDir);
-  if (await File(icuSource).exists()) {
-    final icuDest = path.join(mapsDir, 'icudt75l.dat');
-    await File(icuSource).copy(icuDest);
-    print('  Copied: icudt75l.dat to assets/maps/');
+
+  for (final baseDestDir in destDirs) {
+    if (!await Directory(baseDestDir).exists()) continue;
+    
+    print('Updating assets in: $baseDestDir');
+    final destDataDir = path.join(baseDestDir, 'comaps_data');
+    await ensureDir(destDataDir);
+
+    for (final file in essentialFiles) {
+      final src = path.join(comapsDataDir, file);
+      if (await File(src).exists()) {
+        final dest = path.join(destDataDir, file);
+        await File(src).copy(dest);
+        print('  Copied: $file');
+      }
+    }
+
+    // Copy directories
+    final dirsToCopy = ['categories-strings', 'countries-strings', 'fonts', 'symbols', 'styles'];
+    for (final dir in dirsToCopy) {
+      final srcDir = path.join(comapsDataDir, dir);
+      if (await Directory(srcDir).exists()) {
+        final destDir = path.join(destDataDir, dir);
+        await copyPath(srcDir, destDir);
+        print('  Copied: $dir/');
+      }
+    }
+
+    // Copy ICU data
+    final mapsDir = path.join(baseDestDir, 'maps');
+    await ensureDir(mapsDir);
+    if (await File(icuSource).exists()) {
+      final icuDest = path.join(mapsDir, 'icudt75l.dat');
+      await File(icuSource).copy(icuDest);
+      print('  Copied: icudt75l.dat to assets/maps/');
+    }
   }
 
   print('Data files copied');

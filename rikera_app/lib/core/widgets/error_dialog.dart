@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:rikera_app/core/theme/theme.dart';
 import 'package:rikera_app/core/utils/result.dart';
 import 'package:rikera_app/core/utils/error_message_mapper.dart';
 
@@ -63,9 +64,9 @@ class ErrorDialog extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(message),
-          const SizedBox(height: 16),
+          const SizedBox(height: AppSpacing.md),
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(AppSpacing.md),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(8),
@@ -127,7 +128,7 @@ class InlineErrorMessage extends StatelessWidget {
     return Card(
       color: Theme.of(context).colorScheme.errorContainer,
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.md),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -158,9 +159,9 @@ class InlineErrorMessage extends StatelessWidget {
                 color: Theme.of(context).colorScheme.onErrorContainer,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.md),
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface.withOpacity(0.5),
                 borderRadius: BorderRadius.circular(8),

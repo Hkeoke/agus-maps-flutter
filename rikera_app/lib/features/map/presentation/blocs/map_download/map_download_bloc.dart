@@ -102,45 +102,42 @@ class MapDownloadBloc extends Bloc<MapDownloadEvent, MapDownloadState> {
       // Cancel any existing download
       await _downloadSubscription?.cancel();
 
-      // Start download and listen to progress
-      _downloadSubscription = _downloadMapRegionUseCase
-          .execute(event.region)
-          .listen(
-            (progress) {
-              // Emit downloading state with progress
-              emit(
-                MapDownloadDownloading(
-                  region: event.region,
-                  progress: progress,
-                  regions: currentRegions,
-                  totalStorageUsed: totalStorage,
-                ),
-              );
-
-              // If download completed, reload regions
-              if (progress.status == DownloadStatus.completed) {
-                add(const LoadRegions());
-              }
-            },
-            onError: (error) {
-              emit(
-                MapDownloadError(
-                  message: 'Download failed: $error',
-                  regions: currentRegions,
-                  totalStorageUsed: totalStorage,
-                ),
-              );
-            },
-            cancelOnError: true,
+      // Start download and use emit.forEach to handle stream properly
+      await emit.forEach<DownloadProgress>(
+        _downloadMapRegionUseCase.execute(event.region),
+        onData: (progress) {
+          // Return downloading state with progress
+          return MapDownloadDownloading(
+            region: event.region,
+            progress: progress,
+            regions: currentRegions,
+            totalStorageUsed: totalStorage,
           );
-    } catch (e) {
-      emit(
-        MapDownloadError(
-          message: 'Failed to start download: $e',
-          regions: currentRegions,
-          totalStorageUsed: totalStorage,
-        ),
+        },
+        onError: (error, stackTrace) {
+          // Return error state
+          return MapDownloadError(
+            message: 'Download failed: $error',
+            regions: currentRegions,
+            totalStorageUsed: totalStorage,
+          );
+        },
       );
+
+      // After download completes, reload regions
+      if (!emit.isDone) {
+        add(const LoadRegions());
+      }
+    } catch (e) {
+      if (!emit.isDone) {
+        emit(
+          MapDownloadError(
+            message: 'Failed to start download: $e',
+            regions: currentRegions,
+            totalStorageUsed: totalStorage,
+          ),
+        );
+      }
     }
   }
 

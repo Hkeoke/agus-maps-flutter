@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:agus_maps_flutter/agus_maps_flutter.dart' as agus;
+import 'map_engine_exception.dart';
 
 /// Data source wrapping agus_maps_flutter APIs for map engine operations.
 ///
@@ -15,9 +17,31 @@ class MapEngineDataSource {
     try {
       // Extract data files (classificator, types, categories, etc.)
       final resourcePath = await agus.extractDataFiles();
+      print('[MapEngine] Resource path: $resourcePath');
+      
+      // Verify critical data files exist
+      try {
+        final resourceDir = Directory(resourcePath);
+        if (await resourceDir.exists()) {
+          final files = await resourceDir.list().toList();
+          print('[MapEngine] Extracted ${files.length} data files');
+          
+          // Check for critical files
+          final classificator = File('$resourcePath/classificator.txt');
+          final types = File('$resourcePath/types.txt');
+          final categories = File('$resourcePath/categories.txt');
+          
+          print('[MapEngine] classificator.txt exists: ${await classificator.exists()}');
+          print('[MapEngine] types.txt exists: ${await types.exists()}');
+          print('[MapEngine] categories.txt exists: ${await categories.exists()}');
+        }
+      } catch (e) {
+        print('[MapEngine] Warning: Could not verify data files: $e');
+      }
 
       // Initialize CoMaps with separate resource and writable paths
       agus.initWithPaths(resourcePath, storagePath);
+      print('[MapEngine] CoMaps initialized with paths');
     } catch (e) {
       throw MapEngineException('Failed to initialize map engine: $e');
     }
@@ -81,7 +105,7 @@ class MapEngineDataSource {
   void forceRedraw() {
     agus.forceRedraw();
   }
-
+  
   /// Debug: List all registered MWMs and their bounds.
   ///
   /// Output goes to platform logs (Android logcat, iOS console).
@@ -95,14 +119,4 @@ class MapEngineDataSource {
   void debugCheckPoint(double lat, double lon) {
     agus.debugCheckPoint(lat, lon);
   }
-}
-
-/// Exception thrown when map engine operations fail.
-class MapEngineException implements Exception {
-  final String message;
-
-  MapEngineException(this.message);
-
-  @override
-  String toString() => 'MapEngineException: $message';
 }

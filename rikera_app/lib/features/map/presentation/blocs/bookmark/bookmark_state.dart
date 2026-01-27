@@ -38,6 +38,9 @@ class BookmarkLoaded extends BookmarkState {
 
   const BookmarkLoaded({required this.bookmarks, this.filterCategory});
 
+  /// Alias for filterCategory for UI compatibility
+  BookmarkCategory? get selectedCategory => filterCategory;
+
   /// Returns bookmarks filtered by the current category filter
   List<Bookmark> get filteredBookmarks {
     if (filterCategory == null) {

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rikera_app/core/services/haptic_feedback_service.dart';
 import 'package:rikera_app/core/services/voice_guidance_service.dart';
+import 'package:rikera_app/features/map/data/repositories/navigation_repository_impl.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
 import 'package:rikera_app/features/map/domain/repositories/repositories.dart';
 import 'package:rikera_app/features/map/domain/usecases/usecases.dart';
@@ -71,6 +72,17 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationBlocState> {
     Emitter<NavigationBlocState> emit,
   ) async {
     try {
+      // Inject map controller into navigation repository if available
+      if (_navigationRepository is NavigationRepositoryImpl && event.mapController != null) {
+        (_navigationRepository as NavigationRepositoryImpl).setMapController(event.mapController!);
+      }
+      
+      // Inject map controller into voice guidance service
+      if (_voiceGuidanceService is VoiceGuidanceService && event.mapController != null) {
+        // Voice guidance will use native notifications when controller is available
+        // The service already has the controller from initialization
+      }
+
       // Start navigation using the use case
       final result = await _startNavigationUseCase.execute(event.route);
 

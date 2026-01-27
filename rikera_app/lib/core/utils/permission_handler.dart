@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:rikera_app/core/theme/theme.dart';
 import 'package:rikera_app/core/utils/result.dart';
 import 'package:rikera_app/core/errors/app_errors.dart';
 
@@ -114,9 +115,9 @@ class PermissionHandler {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(message),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.md),
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(8),

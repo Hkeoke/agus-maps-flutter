@@ -163,9 +163,11 @@ class _ThemeAwareMapScreenState extends State<_ThemeAwareMapScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Sync map style with initial theme
+    // Sync map style with initial theme and start location tracking
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _syncMapStyle();
+      // Start location tracking
+      context.read<LocationBloc>().add(const StartTracking());
     });
   }
 
@@ -196,6 +198,15 @@ class _ThemeAwareMapScreenState extends State<_ThemeAwareMapScreen>
 
   @override
   Widget build(BuildContext context) {
-    return const MapScreen();
+    // Listen to settings changes to sync map style immediately
+    return BlocListener<SettingsBloc, SettingsState>(
+      listener: (context, state) {
+        if (state is SettingsLoaded) {
+          // When settings change, sync map style immediately
+          _syncMapStyle();
+        }
+      },
+      child: const MapScreen(),
+    );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
 import 'package:rikera_app/core/constants/app_constants.dart';
+import 'package:rikera_app/core/theme/theme.dart';
 
 /// Widget displaying current speed and speed limit.
 ///
@@ -107,7 +108,7 @@ class SpeedDisplayWidget extends StatelessWidget {
   /// Requirements: 15.1, 15.3, 15.5
   Widget _buildSpeedLimit(double speedLimit, bool isExceeding) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: isExceeding ? Colors.red : Colors.white,

@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'package:agus_maps_flutter/agus_maps_flutter.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
 
 /// Service for providing voice guidance during navigation.
 ///
-/// This service wraps text-to-speech functionality and provides:
+/// This service wraps text-to-speech functionality and integrates with
+/// the native CoMaps navigation engine to provide:
 /// - Voice announcements for turn-by-turn navigation
 /// - Support for multiple languages
 /// - Announcement queueing to prevent overlapping speech
@@ -13,12 +15,18 @@ import 'package:rikera_app/features/map/domain/entities/entities.dart';
 /// Requirements: 14.2, 14.3, 14.5
 class VoiceGuidanceService {
   final FlutterTts _tts;
+  final AgusMapController? _mapController;
   final List<String> _announcementQueue = [];
   bool _isSpeaking = false;
   bool _isEnabled = true;
   String _currentLanguage = 'en-US';
+  Timer? _notificationPollTimer;
 
-  VoiceGuidanceService({FlutterTts? tts}) : _tts = tts ?? FlutterTts() {
+  VoiceGuidanceService({
+    FlutterTts? tts,
+    AgusMapController? mapController,
+  })  : _tts = tts ?? FlutterTts(),
+        _mapController = mapController {
     _initializeTts();
   }
 
@@ -45,6 +53,7 @@ class VoiceGuidanceService {
   /// Enables or disables voice guidance.
   ///
   /// When disabled, announcements are not spoken but the queue is still processed.
+  /// When enabled during navigation, starts polling native notifications.
   ///
   /// Requirements: 14.4
   void setEnabled(bool enabled) {
@@ -53,6 +62,43 @@ class VoiceGuidanceService {
       _tts.stop();
       _isSpeaking = false;
       _announcementQueue.clear();
+      _stopNotificationPolling();
+    } else if (enabled && _mapController != null) {
+      _startNotificationPolling();
+    }
+  }
+
+  /// Starts polling native navigation notifications.
+  void _startNotificationPolling() {
+    _notificationPollTimer?.cancel();
+    _notificationPollTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _pollNativeNotifications(),
+    );
+  }
+
+  /// Stops polling native navigation notifications.
+  void _stopNotificationPolling() {
+    _notificationPollTimer?.cancel();
+    _notificationPollTimer = null;
+  }
+
+  /// Polls native engine for navigation notifications.
+  Future<void> _pollNativeNotifications() async {
+    if (!_isEnabled || _mapController == null) return;
+
+    try {
+      final notifications = await _mapController!.generateNotifications(
+        announceStreets: true,
+      );
+
+      if (notifications != null && notifications.isNotEmpty) {
+        for (final notification in notifications) {
+          _queueAnnouncement(notification);
+        }
+      }
+    } catch (e) {
+      // Silently handle errors - don't disrupt navigation
     }
   }
 
@@ -212,6 +258,7 @@ class VoiceGuidanceService {
   /// Stops any current speech and clears the queue.
   Future<void> stop() async {
     _announcementQueue.clear();
+    _stopNotificationPolling();
     if (_isSpeaking) {
       await _tts.stop();
       _isSpeaking = false;

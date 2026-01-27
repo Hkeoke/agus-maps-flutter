@@ -4,8 +4,9 @@
 /// between the UI and domain layer use cases.
 library;
 
-// Map Cubit
+// Map Bloc
 export 'map/map_cubit.dart';
+export 'map/map_event.dart';
 export 'map/map_state.dart';
 
 // Navigation Bloc

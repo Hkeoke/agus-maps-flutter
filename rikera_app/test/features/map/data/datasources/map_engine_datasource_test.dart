@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rikera_app/features/map/data/datasources/map_engine_datasource.dart';
+import 'package:rikera_app/features/map/data/datasources/map_engine_exception.dart';
 
 void main() {
   group('MapEngineDataSource', () {
