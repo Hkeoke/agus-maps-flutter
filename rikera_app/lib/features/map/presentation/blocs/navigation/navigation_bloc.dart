@@ -98,7 +98,11 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationBlocState> {
       final settingsResult = await _settingsRepository.getSettings();
       if (settingsResult.isSuccess) {
         final settings = settingsResult.valueOrNull!;
+        // Enable service - this starts the native notification polling
         _voiceGuidanceService.setEnabled(settings.voiceGuidanceEnabled);
+      } else {
+        // Default to enabled if settings fail
+        _voiceGuidanceService.setEnabled(true);
       }
 
       // Subscribe to navigation state updates
@@ -155,8 +159,9 @@ class NavigationBloc extends Bloc<NavigationEvent, NavigationBlocState> {
       return;
     }
 
-    // Trigger voice guidance at turn points
-    _checkVoiceGuidance(navigationState);
+    // Voice guidance is handled by VoiceGuidanceService polling native notifications
+    // We don't need manual distance checks here anymore
+    // _checkVoiceGuidance(navigationState);
 
     // Emit normal navigating state
     emit(NavigationNavigating(navigationState));

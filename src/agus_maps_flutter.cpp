@@ -871,8 +871,15 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeBuildRoute(
             // Automatically activate navigation mode when route is ready
             if (g_framework) {
                 g_framework->GetRoutingManager().FollowRoute();
+                
+                // Enable 3D perspective for navigation
+                g_framework->Allow3dMode(true, true);
+                
+                // Explicitly notify Flutter about the mode change to FOLLOW_AND_ROTATE (mode 4)
+                notifyMyPositionModeChanged(location::EMyPositionMode::FollowAndRotate, true);
+                
                 __android_log_print(ANDROID_LOG_INFO, "AgusMapsFlutterNative", 
-                    "Navigation mode (FollowRoute) activated automatically");
+                    "Navigation mode (FollowRoute) activated automatically with FOLLOW_AND_ROTATE mode");
             }
         } else {
             __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", 
@@ -909,10 +916,18 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeFollowRoute(
     rm.FollowRoute();
     
     // Enable 3D perspective for navigation like in the Java app
-    // FollowRoute already sets the correct my position mode internally
     g_framework->Allow3dMode(true, true);
     
-    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", "nativeFollowRoute: Navigation mode activated with 3D perspective");
+    // Explicitly notify Flutter about the mode change to FOLLOW_AND_ROTATE (mode 4)
+    // The internal callback mechanism goes through Platform::Thread::Gui which may have
+    // timing issues with Flutter's message passing. This ensures the UI updates correctly.
+    // Note: FollowRoute() -> RoutingManager::FollowRoute() -> Framework::OnRouteFollow() 
+    // -> DrapeEngine::FollowRoute() -> FrontendRenderer::FollowRoute() 
+    // -> MyPositionController::ActivateRouting() which sets mode to FollowAndRotate
+    notifyMyPositionModeChanged(location::EMyPositionMode::FollowAndRotate, true);
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeFollowRoute: Navigation mode activated with 3D perspective, notified FOLLOW_AND_ROTATE mode");
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -924,7 +939,12 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeStopRouting(
     // Disable 3D perspective when stopping navigation
     g_framework->Allow3dMode(false, false);
     
-    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", "nativeStopRouting: Navigation stopped, perspective reset");
+    // Notify Flutter about mode change - routing deactivation transitions from
+    // FollowAndRotate to Follow mode (see MyPositionController::DeactivateRouting)
+    notifyMyPositionModeChanged(location::EMyPositionMode::Follow, false);
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeStopRouting: Navigation stopped, perspective reset, notified FOLLOW mode");
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -1201,4 +1221,45 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeRemoveRoute(
     JNIEnv* env, jobject thiz) {
     if (!g_framework) return;
     g_framework->GetRoutingManager().RemoveRoute(true /* deactivateFollowing */);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeSetTurnNotificationsLocale(
+    JNIEnv* env, jobject thiz, jstring locale) {
+    if (!g_framework) return;
+    
+    const char* localeStr = env->GetStringUTFChars(locale, nullptr);
+    if (localeStr) {
+        g_framework->GetRoutingManager().SetTurnNotificationsLocale(localeStr);
+        __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+            "nativeSetTurnNotificationsLocale: %s", localeStr);
+        env->ReleaseStringUTFChars(locale, localeStr);
+    }
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeEnableTurnNotifications(
+    JNIEnv* env, jobject thiz, jboolean enable) {
+    if (!g_framework) return;
+    
+    g_framework->GetRoutingManager().EnableTurnNotifications(enable);
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeEnableTurnNotifications: %d", enable);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeAreTurnNotificationsEnabled(
+    JNIEnv* env, jobject thiz) {
+    if (!g_framework) return JNI_FALSE;
+    
+    return g_framework->GetRoutingManager().AreTurnNotificationsEnabled() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeGetTurnNotificationsLocale(
+    JNIEnv* env, jobject thiz) {
+    if (!g_framework) return nullptr;
+    
+    std::string locale = g_framework->GetRoutingManager().GetTurnNotificationsLocale();
+    return env->NewStringUTF(locale.c_str());
 }

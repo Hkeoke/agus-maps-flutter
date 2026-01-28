@@ -520,9 +520,32 @@ class AgusMapController {
   }
 
   /// Activate route following mode (navigation mode).
-  /// This should be called after a route has been successfully built.
+  /// This should be called after  /// Follow the calculated route in navigation mode.
   Future<void> followRoute() async {
     await _channel.invokeMethod('followRoute');
+  }
+
+  /// Sets the locale for turn notifications (voice guidance).
+  /// Format should be like 'en-US', 'es-ES', etc.
+  Future<void> setTurnNotificationsLocale(String locale) async {
+    await _channel.invokeMethod('setTurnNotificationsLocale', {'locale': locale});
+  }
+
+  /// Enables or disables turn notification generation in the native engine.
+  Future<void> enableTurnNotifications(bool enable) async {
+    await _channel.invokeMethod('enableTurnNotifications', {'enable': enable});
+  }
+
+  /// Checks if turn notifications are enabled in the native engine.
+  Future<bool> areTurnNotificationsEnabled() async {
+    final result = await _channel.invokeMethod('areTurnNotificationsEnabled');
+    return result as bool;
+  }
+
+  /// Gets the current turn notifications locale from the native engine.
+  Future<String?> getTurnNotificationsLocale() async {
+    final result = await _channel.invokeMethod('getTurnNotificationsLocale');
+    return result as String?;
   }
 }
 

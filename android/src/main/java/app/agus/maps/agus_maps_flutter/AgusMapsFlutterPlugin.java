@@ -278,6 +278,28 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
     } else if (call.method.equals("followRoute")) {
         nativeFollowRoute();
         result.success(null);
+    } else if (call.method.equals("setTurnNotificationsLocale")) {
+        String locale = call.argument("locale");
+        if (locale != null) {
+            nativeSetTurnNotificationsLocale(locale);
+            result.success(null);
+        } else {
+            result.error("INVALID_ARGUMENT", "locale is null", null);
+        }
+    } else if (call.method.equals("enableTurnNotifications")) {
+        Boolean enable = call.argument("enable");
+        if (enable != null) {
+            nativeEnableTurnNotifications(enable);
+            result.success(null);
+        } else {
+            result.error("INVALID_ARGUMENT", "enable is null", null);
+        }
+    } else if (call.method.equals("areTurnNotificationsEnabled")) {
+        boolean enabled = nativeAreTurnNotificationsEnabled();
+        result.success(enabled);
+    } else if (call.method.equals("getTurnNotificationsLocale")) {
+        String locale = nativeGetTurnNotificationsLocale();
+        result.success(locale);
     } else {
       result.notImplemented();
     }
@@ -309,6 +331,10 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
   private native void nativeDisableFollowing();
   private native void nativeRemoveRoute();
   private native void nativeFollowRoute();
+  private native void nativeSetTurnNotificationsLocale(String locale);
+  private native void nativeEnableTurnNotifications(boolean enable);
+  private native boolean nativeAreTurnNotificationsEnabled();
+  private native String nativeGetTurnNotificationsLocale();
   
   private native void nativeInitFrameCallback();
   private native void nativeCleanupFrameCallback();

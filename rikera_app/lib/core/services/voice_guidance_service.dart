@@ -63,16 +63,21 @@ class VoiceGuidanceService {
       _isSpeaking = false;
       _announcementQueue.clear();
       _stopNotificationPolling();
-    } else if (enabled && _mapController != null) {
-      _startNotificationPolling();
+    } else if (enabled) {
+      if (_mapController != null) {
+        _mapController!.enableTurnNotifications(true);
+        _mapController!.setTurnNotificationsLocale(_currentLanguage);
+        _startNotificationPolling();
+      }
     }
   }
 
   /// Starts polling native navigation notifications.
   void _startNotificationPolling() {
     _notificationPollTimer?.cancel();
+    // Poll more frequently for responsive turn instructions (1s)
     _notificationPollTimer = Timer.periodic(
-      const Duration(seconds: 2),
+      const Duration(seconds: 1),
       (_) => _pollNativeNotifications(),
     );
   }
@@ -120,6 +125,9 @@ class VoiceGuidanceService {
   Future<void> setLanguage(String languageCode) async {
     _currentLanguage = languageCode;
     await _tts.setLanguage(languageCode);
+    if (_mapController != null) {
+      await _mapController!.setTurnNotificationsLocale(languageCode);
+    }
   }
 
   /// Gets the current language code.
