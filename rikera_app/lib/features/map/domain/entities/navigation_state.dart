@@ -1,6 +1,7 @@
 import 'location.dart';
 import 'route.dart';
 import 'route_segment.dart';
+import 'turn_direction.dart';
 
 /// Represents the current state of an active navigation session.
 ///
@@ -13,10 +14,10 @@ class NavigationState {
   /// Current location of the user
   final Location currentLocation;
 
-  /// Current route segment the user is on (optional)
+  /// The current segment of the route
   final RouteSegment? currentSegment;
 
-  /// Next route segment after the current one (optional)
+  /// The next segment of the route
   final RouteSegment? nextSegment;
 
   /// Distance to the next turn in meters
@@ -28,8 +29,20 @@ class NavigationState {
   /// Remaining time to destination in seconds
   final int remainingTimeSeconds;
 
-  /// Whether the user has deviated from the route
+  /// Whether the user is off route
   final bool isOffRoute;
+
+  /// The current street name
+  final String? currentStreetName;
+
+  /// The next street name
+  final String? nextStreetName;
+
+  /// The turn direction for the next maneuver
+  final TurnDirection? turnDirection;
+
+  /// The speed limit in meters per second
+  final double? speedLimitMetersPerSecond;
 
   const NavigationState({
     required this.route,
@@ -40,6 +53,10 @@ class NavigationState {
     required this.remainingDistanceMeters,
     required this.remainingTimeSeconds,
     required this.isOffRoute,
+    this.currentStreetName,
+    this.nextStreetName,
+    this.turnDirection,
+    this.speedLimitMetersPerSecond,
   });
 
   /// Creates a copy of this state with updated fields
@@ -52,6 +69,10 @@ class NavigationState {
     double? remainingDistanceMeters,
     int? remainingTimeSeconds,
     bool? isOffRoute,
+    String? currentStreetName,
+    String? nextStreetName,
+    TurnDirection? turnDirection,
+    double? speedLimitMetersPerSecond,
   }) {
     return NavigationState(
       route: route ?? this.route,
@@ -64,6 +85,11 @@ class NavigationState {
           remainingDistanceMeters ?? this.remainingDistanceMeters,
       remainingTimeSeconds: remainingTimeSeconds ?? this.remainingTimeSeconds,
       isOffRoute: isOffRoute ?? this.isOffRoute,
+      currentStreetName: currentStreetName ?? this.currentStreetName,
+      nextStreetName: nextStreetName ?? this.nextStreetName,
+      turnDirection: turnDirection ?? this.turnDirection,
+      speedLimitMetersPerSecond:
+          speedLimitMetersPerSecond ?? this.speedLimitMetersPerSecond,
     );
   }
 
@@ -79,7 +105,11 @@ class NavigationState {
         other.distanceToNextTurnMeters == distanceToNextTurnMeters &&
         other.remainingDistanceMeters == remainingDistanceMeters &&
         other.remainingTimeSeconds == remainingTimeSeconds &&
-        other.isOffRoute == isOffRoute;
+        other.isOffRoute == isOffRoute &&
+        other.currentStreetName == currentStreetName &&
+        other.nextStreetName == nextStreetName &&
+        other.turnDirection == turnDirection &&
+        other.speedLimitMetersPerSecond == speedLimitMetersPerSecond;
   }
 
   @override
@@ -91,7 +121,11 @@ class NavigationState {
         distanceToNextTurnMeters.hashCode ^
         remainingDistanceMeters.hashCode ^
         remainingTimeSeconds.hashCode ^
-        isOffRoute.hashCode;
+        isOffRoute.hashCode ^
+        currentStreetName.hashCode ^
+        nextStreetName.hashCode ^
+        turnDirection.hashCode ^
+        speedLimitMetersPerSecond.hashCode;
   }
 
   @override

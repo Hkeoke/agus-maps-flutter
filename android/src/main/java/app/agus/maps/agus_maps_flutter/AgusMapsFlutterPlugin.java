@@ -209,6 +209,17 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
     } else if (call.method.equals("switchMyPositionMode")) {
         nativeSwitchMyPositionMode();
         result.success(null);
+    } else if (call.method.equals("getMyPositionMode")) {
+        int mode = nativeGetMyPositionMode();
+        result.success(mode);
+    } else if (call.method.equals("setMyPositionMode")) {
+        Integer mode = call.argument("mode");
+        if (mode != null) {
+            nativeSetMyPositionMode(mode);
+            result.success(null);
+        } else {
+            result.error("INVALID_ARGUMENT", "mode is null", null);
+        }
     } else if (call.method.equals("scale")) {
         Double factor = call.argument("factor");
         if (factor != null) {
@@ -227,6 +238,12 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
             nativeOnLocationUpdate(lat, lon, accuracy != null ? accuracy : 0, 
                 bearing != null ? bearing : 0, speed != null ? speed : 0, 
                 time != null ? time : System.currentTimeMillis());
+            result.success(null);
+        }
+    } else if (call.method.equals("onCompassUpdate")) {
+        Double bearing = call.argument("bearing");
+        if (bearing != null) {
+            nativeOnCompassUpdate(bearing);
             result.success(null);
         }
     } else if (call.method.equals("setMapStyle")) {
@@ -277,8 +294,11 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
   private native void nativeBuildRoute(double lat, double lon);
   private native void nativeStopRouting();
   private native void nativeSwitchMyPositionMode();
+  private native int nativeGetMyPositionMode();
+  private native void nativeSetMyPositionMode(int mode);
   private native void nativeScale(double factor);
   private native void nativeOnLocationUpdate(double lat, double lon, double accuracy, double bearing, double speed, long time);
+  private native void nativeOnCompassUpdate(double bearing);
   private native void nativeSetMapStyle(int style);
   private native String nativeGetCountryName(double lat, double lon);
   
@@ -326,6 +346,42 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
           mainHandler.post(() -> {
               if (channel != null) {
                   channel.invokeMethod("onPlacePageEvent", eventType);
+              }
+          });
+      }
+  }
+
+  /**
+   * Called from native code when My Position mode changes.
+   * mode: 0=PENDING_POSITION, 1=NOT_FOLLOW_NO_POSITION, 2=NOT_FOLLOW, 3=FOLLOW, 4=FOLLOW_AND_ROTATE
+   */
+  @SuppressWarnings("unused") // Called from native code
+  @Keep
+  public void onMyPositionModeChanged(int mode) {
+      if (mainHandler != null) {
+          mainHandler.post(() -> {
+              if (channel != null) {
+                  channel.invokeMethod("onMyPositionModeChanged", mode);
+              }
+          });
+      }
+  }
+
+  /**
+   * Called from native code during routing events.
+   * eventType: 0 = BuildStarted, 1 = BuildReady, 2 = BuildFailed, 3 = RebuildStarted
+   * code: status code from native engine
+   */
+  @SuppressWarnings("unused") // Called from native code
+  @Keep
+  public void onRoutingEvent(int eventType, int code) {
+      if (mainHandler != null) {
+          mainHandler.post(() -> {
+              if (channel != null) {
+                  java.util.Map<String, Object> args = new java.util.HashMap<>();
+                  args.put("type", eventType);
+                  args.put("code", code);
+                  channel.invokeMethod("onRoutingEvent", args);
               }
           });
       }

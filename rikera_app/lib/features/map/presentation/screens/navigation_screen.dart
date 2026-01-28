@@ -58,26 +58,49 @@ class _NavigationScreenState extends State<NavigationScreen> {
     final mapCubit = context.read<MapCubit>();
     
     return Scaffold(
-      body: BlocListener<NavigationBloc, NavigationBlocState>(
-        listener: (context, state) {
-          if (state is NavigationArrived) {
-            _showArrivalDialog(context);
-          } else if (state is NavigationError) {
-            _showErrorSnackBar(context, state.message);
-          }
-        },
+      body: MultiBlocListener(
+        listeners: [
+          // Listen to location updates and send them to the native map
+          BlocListener<LocationBloc, LocationState>(
+            listener: (context, locationState) {
+              if (locationState is LocationTracking) {
+                // Update location in MapCubit
+                mapCubit.updateLocation(locationState.location);
+                
+                // Send location to native map for "My Position" icon and navigation
+                final loc = locationState.location;
+                final bearing = loc.heading ?? -1.0;
+                final speed = loc.speed ?? -1.0;
+                
+                mapCubit.mapController.setMyPosition(
+                  loc.latitude,
+                  loc.longitude,
+                  loc.accuracy ?? 0.0,
+                  bearing,
+                  speed,
+                  loc.timestamp.millisecondsSinceEpoch,
+                );
+
+                if (bearing >= 0) {
+                  mapCubit.mapController.setCompass(bearing);
+                }
+              }
+            },
+          ),
+          // Listen to navigation state changes
+          BlocListener<NavigationBloc, NavigationBlocState>(
+            listener: (context, state) {
+              if (state is NavigationArrived) {
+                _showArrivalDialog(context);
+              } else if (state is NavigationError) {
+                _showErrorSnackBar(context, state.message);
+              }
+            },
+          ),
+        ],
         child: Stack(
           children: [
-            BlocConsumer<MapCubit, MapState>(
-              listener: (context, mapState) {
-                if (mapState is MapReady && mapState.location != null) {
-                  mapCubit.mapController.moveToLocation(
-                    mapState.location!.latitude,
-                    mapState.location!.longitude,
-                    mapState.zoom,
-                  );
-                }
-              },
+            BlocBuilder<MapCubit, MapState>(
               builder: (context, mapState) {
                 final location = mapState is MapReady ? mapState.location : null;
                 final zoom = mapState is MapReady ? mapState.zoom : 17;
@@ -107,6 +130,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
                   navigationState: navigationState,
                   onStopNavigation: () {
                     context.read<NavigationBloc>().add(const StopNavigation());
+                    context.read<RouteBloc>().add(const ClearRoute());
                     Navigator.of(context).pop();
                   },
                   onToggleVoice: () {

@@ -16,32 +16,49 @@ class EtaDisplayWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final eta = _calculateEta();
+    final arrivalTime = _calculateArrivalTime();
+    final duration = _formatDuration(navigationState.remainingTimeSeconds);
     final distance = _formatDistance(navigationState.remainingDistanceMeters);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          // ETA display
-          _buildInfoCard(icon: Icons.access_time, label: 'ETA', value: eta),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        // Duration display
+        _buildInfoCard(
+          icon: Icons.timer,
+          label: 'Duration',
+          value: duration,
+          valueColor: Colors.greenAccent,
+        ),
 
-          // Vertical divider
-          Container(
-            width: 1,
-            height: 40,
-            color: Colors.white.withValues(alpha: 0.3),
-          ),
+        // Vertical divider
+        _buildDivider(),
 
-          // Distance display
-          _buildInfoCard(
-            icon: Icons.straighten,
-            label: 'Distance',
-            value: distance,
-          ),
-        ],
-      ),
+        // Arrival Time display
+        _buildInfoCard(
+          icon: Icons.access_time,
+          label: 'Arrival',
+          value: arrivalTime,
+        ),
+
+        // Vertical divider
+        _buildDivider(),
+
+        // Distance display
+        _buildInfoCard(
+          icon: Icons.straighten,
+          label: 'Distance',
+          value: distance,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDivider() {
+    return Container(
+      width: 1,
+      height: 30,
+      color: Colors.white.withValues(alpha: 0.1),
     );
   }
 
@@ -50,31 +67,27 @@ class EtaDisplayWidget extends StatelessWidget {
     required IconData icon,
     required String label,
     required String value,
+    Color valueColor = Colors.white,
   }) {
     return Expanded(
       child: Column(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 20, color: Colors.white.withValues(alpha: 0.8)),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.white.withValues(alpha: 0.8),
-                ),
-              ),
-            ],
+          Text(
+            label.toUpperCase(),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
+              color: Colors.white.withValues(alpha: 0.5),
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: valueColor,
             ),
           ),
         ],
@@ -82,25 +95,30 @@ class EtaDisplayWidget extends StatelessWidget {
     );
   }
 
-  /// Calculates and formats the ETA.
-  ///
-  /// Returns time in format "HH:MM" or "MM min" depending on duration.
-  String _calculateEta() {
+  /// Calculates and formats the Arrival Time.
+  String _calculateArrivalTime() {
     final now = DateTime.now();
     final eta = now.add(
       Duration(seconds: navigationState.remainingTimeSeconds),
     );
 
-    // If less than 60 minutes, show minutes
-    if (navigationState.remainingTimeSeconds < 3600) {
-      final minutes = (navigationState.remainingTimeSeconds / 60).ceil();
-      return '$minutes min';
-    }
-
-    // Otherwise show time
     final hour = eta.hour.toString().padLeft(2, '0');
     final minute = eta.minute.toString().padLeft(2, '0');
     return '$hour:$minute';
+  }
+
+  /// Formats duration (remaining time) in a human-readable way.
+  String _formatDuration(int seconds) {
+    if (seconds < 60) {
+      return '$seconds s';
+    }
+    final minutes = (seconds / 60).floor();
+    if (minutes < 60) {
+      return '$minutes min';
+    }
+    final hours = (minutes / 60).floor();
+    final remainingMinutes = minutes % 60;
+    return '${hours}h ${remainingMinutes}m';
   }
 
   /// Formats distance in a human-readable way.

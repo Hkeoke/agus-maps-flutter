@@ -2,7 +2,15 @@ diff --git a/libs/map/routing_manager.cpp b/libs/map/routing_manager.cpp
 index 5034ed8..691b615 100644
 --- a/libs/map/routing_manager.cpp
 +++ b/libs/map/routing_manager.cpp
-@@ -521,18 +521,27 @@ void RoutingManager::SetRouterImpl(RouterType type)
+@@ -464,7 +464,11 @@ void RoutingManager::OnRoutePointPassed(RouteMarkType type, size_t intermediateI
+ void RoutingManager::OnLocationUpdate(location::GpsInfo const & info)
+ {
+   m_extrapolator.OnLocationUpdate(info);
++  OnExtrapolatedLocationUpdate(info);
+ }
+ 
+ RouterType RoutingManager::GetBestRouter(m2::PointD const & startPoint, m2::PointD const & finalPoint) const
+@@ -521,18 +525,27 @@ void RoutingManager::SetRouterImpl(RouterType type)
    auto const getMwmRectByName = [this](string const & countryId) -> m2::RectD
    { return m_callbacks.m_countryInfoGetter().GetLimitRectForLeaf(countryId); };
  
@@ -29,4 +37,3 @@ index 5034ed8..691b615 100644
 +  LOG(LDEBUG, ("SetRouterImpl: Complete"));
    m_currentRouterType = type;
  }
- 

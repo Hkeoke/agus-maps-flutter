@@ -4,6 +4,7 @@ import 'package:agus_maps_flutter/agus_maps_flutter.dart';
 import 'package:rikera_app/features/map/presentation/blocs/blocs.dart';
 import 'package:rikera_app/features/map/presentation/widgets/widgets.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
+import 'navigation_screen.dart';
 
 /// Main map screen displaying the interactive map.
 ///
@@ -26,14 +27,21 @@ class MapScreen extends StatelessWidget {
                 
                 // Send location to map for "My Position" icon
                 final loc = locationState.location;
+                final bearing = loc.heading ?? -1.0;
+                final speed = loc.speed ?? -1.0;
+                
                 mapCubit.mapController.setMyPosition(
                   loc.latitude,
                   loc.longitude,
                   loc.accuracy ?? 0.0,
-                  loc.heading ?? 0.0,
-                  loc.speed ?? 0.0,
+                  bearing,
+                  speed,
                   loc.timestamp.millisecondsSinceEpoch,
                 );
+
+                if (bearing >= 0) {
+                  mapCubit.mapController.setCompass(bearing);
+                }
               } else if (locationState is LocationPermissionDenied) {
                 // Request permissions if denied
                 context.read<LocationBloc>().add(const RequestPermissions());
@@ -62,11 +70,14 @@ class MapScreen extends StatelessWidget {
               } else if (mapState is MapSelectionAvailable) {
                 _showPlacePageSheet(context, mapState);
               } else if (mapState is MapReady && mapState.location != null) {
-                mapCubit.mapController.moveToLocation(
-                  mapState.location!.latitude,
-                  mapState.location!.longitude,
-                  mapState.zoom,
-                );
+                // Only move manually if NOT in followed mode (3=Follow, 4=FollowAndRotate)
+                if (mapState.myPositionMode < 3) {
+                  mapCubit.mapController.moveToLocation(
+                    mapState.location!.latitude,
+                    mapState.location!.longitude,
+                    mapState.zoom,
+                  );
+                }
               }
             },
           ),
@@ -108,6 +119,99 @@ class MapScreen extends StatelessWidget {
                   },
                 ),
                 const MapFloatingActions(),
+                
+                // Bottom panel for route preview (matches Java app behavior)
+                BlocBuilder<RouteBloc, RouteState>(
+                  builder: (context, state) {
+                    if (state is RouteCalculated) {
+                      return Align(
+                        alignment: Alignment.bottomCenter,
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withAlpha(50),
+                                blurRadius: 10,
+                                spreadRadius: 2,
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.directions_car, color: Colors.blue),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Ruta calculada',
+                                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        Text(
+                                          '${(state.route.totalDistanceMeters / 1000).toStringAsFixed(1)} km • ${(state.route.estimatedTimeSeconds / 60).toStringAsFixed(0)} min',
+                                          style: Theme.of(context).textTheme.bodyMedium,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.close),
+                                    onPressed: () {
+                                      context.read<RouteBloc>().add(const ClearRoute());
+                                      context.read<NavigationBloc>().add(const StopNavigation());
+                                      mapCubit.mapController.stopRouting();
+                                    },
+                                    tooltip: 'Cancelar',
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              SizedBox(
+                                width: double.infinity,
+                                height: 50,
+                                child: ElevatedButton(
+                                  onPressed: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => NavigationScreen(),
+                                      ),
+                                    );
+                                  },
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blue,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                  child: const Text(
+                                    'EMPEZAR NAVEGACIÓN',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    return const SizedBox.shrink();
+                  },
+                ),
               ],
             );
           },

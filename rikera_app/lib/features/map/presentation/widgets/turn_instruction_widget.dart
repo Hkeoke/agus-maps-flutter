@@ -18,82 +18,58 @@ class TurnInstructionWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final nextSegment = navigationState.nextSegment;
+    final turnDirection = navigationState.turnDirection ?? TurnDirection.straight;
+    final nextStreetName = navigationState.nextStreetName;
+    final currentStreetName = navigationState.currentStreetName;
 
-    if (nextSegment == null) {
-      return _buildContinueStraight(context);
-    }
-
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.md),
+    return Container(
+      padding: const EdgeInsets.all(16),
       child: Row(
         children: [
           // Large turn arrow icon
-          _buildTurnIcon(nextSegment.turnDirection),
+          Icon(
+            _getTurnIcon(turnDirection),
+            size: 64,
+            color: Colors.white,
+          ),
 
-          const SizedBox(width: AppSpacing.md),
+          const SizedBox(width: 20),
 
           // Turn information
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 // Distance to turn (large font)
                 Text(
                   _formatDistance(navigationState.distanceToNextTurnMeters),
                   style: const TextStyle(
-                    fontSize: 48,
-                    fontWeight: FontWeight.bold,
+                    fontSize: 42,
+                    fontWeight: FontWeight.w900,
                     color: Colors.white,
                     height: 1.0,
                   ),
                 ),
 
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
 
-                // Turn direction text
+                // Street name (Next street if turning, current if straight)
                 Text(
-                  _getTurnDirectionText(nextSegment.turnDirection),
+                  nextStreetName ?? currentStreetName ?? 'Sigue recto',
                   style: const TextStyle(
-                    fontSize: 20,
+                    fontSize: 18,
                     color: Colors.white,
                     fontWeight: FontWeight.w500,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-
-                // Street name (if available)
-                if (nextSegment.streetName != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    nextSegment.streetName!,
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.white.withValues(alpha: 0.8),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
               ],
             ),
           ),
         ],
       ),
-    );
-  }
-
-  /// Builds the turn icon based on turn direction.
-  ///
-  /// Requirements: 9.2
-  Widget _buildTurnIcon(TurnDirection direction) {
-    return Container(
-      width: 80,
-      height: 80,
-      decoration: BoxDecoration(
-        color: Colors.blue,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Icon(_getTurnIcon(direction), size: 56, color: Colors.white),
     );
   }
 
@@ -151,9 +127,9 @@ class TurnInstructionWidget extends StatelessWidget {
   IconData _getTurnIcon(TurnDirection direction) {
     switch (direction) {
       case TurnDirection.straight:
-        return Icons.arrow_upward;
+        return Icons.navigation;
       case TurnDirection.slightLeft:
-        return Icons.arrow_back;
+        return Icons.turn_slight_left;
       case TurnDirection.left:
         return Icons.turn_left;
       case TurnDirection.sharpLeft:
@@ -161,7 +137,7 @@ class TurnInstructionWidget extends StatelessWidget {
       case TurnDirection.uTurnLeft:
         return Icons.u_turn_left;
       case TurnDirection.slightRight:
-        return Icons.arrow_forward;
+        return Icons.turn_slight_right;
       case TurnDirection.right:
         return Icons.turn_right;
       case TurnDirection.sharpRight:
@@ -173,7 +149,7 @@ class TurnInstructionWidget extends StatelessWidget {
       case TurnDirection.exitRoundabout:
         return Icons.roundabout_right;
       case TurnDirection.destination:
-        return Icons.place;
+        return Icons.flag;
     }
   }
 

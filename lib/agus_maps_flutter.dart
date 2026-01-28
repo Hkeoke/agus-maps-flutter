@@ -46,6 +46,7 @@ Future<int> sumAsync(int a, int b) async {
 final _channel = const MethodChannel('agus_maps_flutter');
 
 final StreamController<int> _placePageEventController = StreamController<int>.broadcast();
+final StreamController<int> _myPositionModeChangedController = StreamController<int>.broadcast();
 bool _channelInitialized = false;
 
 void _ensureChannelInitialized() {
@@ -54,6 +55,9 @@ void _ensureChannelInitialized() {
     if (call.method == 'onPlacePageEvent') {
       final int type = call.arguments as int;
       _placePageEventController.add(type);
+    } else if (call.method == 'onMyPositionModeChanged') {
+      final int mode = call.arguments as int;
+      _myPositionModeChangedController.add(mode);
     }
   });
   _channelInitialized = true;
@@ -357,6 +361,24 @@ class AgusMapController {
     _channel.invokeMethod('scale', {'factor': 0.5});
   }
 
+  /// Switch to next "My Position" mode (cycles through: off -> follow -> follow+rotate).
+  void switchMyPositionMode() {
+    _channel.invokeMethod('switchMyPositionMode');
+  }
+
+  /// Get current "My Position" mode.
+  /// Returns: 0=PENDING, 1=NOT_FOLLOW_NO_POSITION, 2=NOT_FOLLOW, 3=FOLLOW, 4=FOLLOW_AND_ROTATE
+  Future<int> getMyPositionMode() async {
+    final mode = await _channel.invokeMethod('getMyPositionMode');
+    return mode ?? 0;
+  }
+
+  /// Set "My Position" mode directly.
+  /// mode: 0=PENDING, 1=NOT_FOLLOW_NO_POSITION, 2=NOT_FOLLOW, 3=FOLLOW, 4=FOLLOW_AND_ROTATE
+  Future<void> setMyPositionMode(int mode) async {
+    await _channel.invokeMethod('setMyPositionMode', {'mode': mode});
+  }
+
   /// Send GPS update to native engine for "My Position" arrow rendering.
   void setMyPosition(double lat, double lon, double accuracy, double bearing, double speed, int time) {
     _channel.invokeMethod('onLocationUpdate', {
@@ -366,6 +388,14 @@ class AgusMapController {
       'bearing': bearing, 
       'speed': speed, 
       'time': time
+    });
+  }
+
+  /// Send Compass update to native engine for map rotation.
+  /// [bearing] is the compass heading in degrees (0-360).
+  void setCompass(double bearing) {
+    _channel.invokeMethod('onCompassUpdate', {
+      'bearing': bearing,
     });
   }
 
@@ -380,6 +410,14 @@ class AgusMapController {
   /// False = Object deselected (PlacePage Close)
   Stream<bool> get onSelectionChanged => 
       _placePageEventController.stream.map((type) => type == 0);
+
+  /// Stream of My Position mode changes.
+  /// Emits the new mode whenever it changes:
+  /// 0=PENDING_POSITION, 1=NOT_FOLLOW_NO_POSITION, 2=NOT_FOLLOW, 3=FOLLOW, 4=FOLLOW_AND_ROTATE
+  Stream<int> get onMyPositionModeChanged {
+    _ensureChannelInitialized();
+    return _myPositionModeChangedController.stream;
+  }
 
   /// Get details of the currently selected object.
   Future<Map<String, dynamic>?> getSelectionInfo() async {
@@ -455,11 +493,6 @@ class AgusMapController {
   /// This should be called after a route has been successfully built.
   Future<void> followRoute() async {
     await _channel.invokeMethod('followRoute');
-  }
-
-  /// Toggle My Position mode (Follow, Follow+Rotate, None).
-  Future<void> switchMyPositionMode() async {
-    await _channel.invokeMethod('switchMyPositionMode');
   }
 }
 

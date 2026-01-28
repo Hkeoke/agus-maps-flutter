@@ -140,25 +140,26 @@ Framework initialization involves many components. When debugging startup issues
 
 **File Modified:** `libs/map/routing_manager.cpp`
 
-**Category:** Debug Logging
+**Category:** Debug Logging / Location Updates
 
-**Purpose:** Adds debug logging to track router creation and configuration.
+**Purpose:** Adds debug logging and ensures immediate visual updates on location change.
 
 **What it does:**
 
 - Adds logging around `AbsentRegionsFinder` creation
 - Logs router type and `IndexRouter` creation steps
 - Tracks routing settings and router assignment
+- **Forces an immediate Drape update in `OnLocationUpdate`** to ensure the user's position arrow moves even if the background extrapolator thread is stuck or slow.
 
 **Why it's needed:**
-Routing initialization is complex and involves multiple factories. Debug logging helps identify exactly where issues occur.
+
+- Router initialization is complex and needs visibility.
+- Location updates in Drape normally rely on a background extrapolation thread. In some embedded or Flutter contexts, this thread may experience delays or scheduling issues, causing the map icon to appear stuck. Direct updates ensure responsiveness.
 
 **Without this patch:**
 
 - Router initialization failures would be opaque
-- Difficult to debug routing setup issues on embedded platforms
-
-**Status:** Debug/Development patch - could potentially be removed in production builds.
+- The user's position icon on the map might not move smoothly or at all during navigation.
 
 ### 0007-libs-routing-routing_session-cpp.patch
 
@@ -1461,3 +1462,24 @@ The original shader used `mix()` between the texture and mask color. If the text
 - Route turn arrows appear black or very dark even when `RouteArrowsMaskCar-color` is set to white in MapCSS styles
 - Low opacity values in style files make arrows nearly invisible
 - Navigation guidance is difficult to follow due to poor arrow visibility
+
+### 0072-libs-drape_frontend-arrow3d-scale.patch
+
+**File Modified:** `libs/drape_frontend/arrow3d.cpp`
+
+**Category:** Graphics / UI
+
+**Purpose:** Reduces the visual scale of the 3D navigation arrow.
+
+**What it does:**
+
+- Changes `kArrow3dScaleMin` from 1.0 to 0.8
+- Changes `kArrow3dScaleMax` from 2.2 to 1.6
+
+**Why it's needed:**
+The default 3D arrow in CoMaps can appear excessively large on modern high-density mobile displays in navigation mode, obscuring too much of the map and the immediate route. Reducing these constants provides a more balanced and professional look.
+
+**Without this patch:**
+
+- The navigation arrow may appear disproportionately large
+- Obscures map details in 3D/perspective mode

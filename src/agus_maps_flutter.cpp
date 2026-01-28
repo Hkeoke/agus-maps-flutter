@@ -32,7 +32,9 @@ FFI_PLUGIN_EXPORT int sum_long_running(int a, int b) {
 #include "base/file_name_utils.hpp"
 #include "base/logging.hpp"
 #include "map/framework.hpp"
+#include "map/gps_tracker.hpp"
 #include "platform/local_country_file.hpp"
+#include "platform/location.hpp"
 #include "drape/graphics_context_factory.hpp"
 #include "drape_frontend/visual_params.hpp"
 #include "drape_frontend/user_event_stream.hpp"
@@ -141,6 +143,8 @@ extern JavaVM* g_javaVM;
 static jobject g_pluginInstance = nullptr;
 static jmethodID g_notifyFrameReadyMethod = nullptr;
 static jmethodID g_onPlacePageEventMethod = nullptr;
+static jmethodID g_onMyPositionModeChangedMethod = nullptr;
+static jmethodID g_onRoutingEventMethod = nullptr;
 
 /// Internal function to notify Android/Flutter about PlacePage event
 /// type: 0 = Open, 1 = Close
@@ -160,6 +164,67 @@ static void notifyPlacePageEvent(int type) {
         
         if (env) {
             env->CallVoidMethod(g_pluginInstance, g_onPlacePageEventMethod, static_cast<jint>(type));
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+            }
+        }
+        
+        if (attached) {
+            g_javaVM->DetachCurrentThread();
+        }
+    }
+}
+
+/// Internal function to notify Android/Flutter about My Position mode change
+static void notifyMyPositionModeChanged(location::EMyPositionMode mode, bool routingActive) {
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "notifyMyPositionModeChanged: mode=%d, routingActive=%d", 
+        static_cast<int>(mode), routingActive);
+    
+    if (g_javaVM && g_pluginInstance && g_onMyPositionModeChangedMethod) {
+        JNIEnv* env = nullptr;
+        bool attached = false;
+        
+        int status = g_javaVM->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+        if (status == JNI_EDETACHED) {
+            if (g_javaVM->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+                attached = true;
+            } else {
+                return;
+            }
+        }
+        
+        if (env) {
+            env->CallVoidMethod(g_pluginInstance, g_onMyPositionModeChangedMethod, static_cast<jint>(mode));
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+            }
+        }
+        
+        if (attached) {
+            g_javaVM->DetachCurrentThread();
+        }
+    }
+}
+
+/// Internal function to notify Android/Flutter about routing event
+/// eventType: 0 = BuildStarted, 1 = BuildReady, 2 = BuildFailed, 3 = RebuildStarted
+static void notifyRoutingEvent(int type, int code) {
+    if (g_javaVM && g_pluginInstance && g_onRoutingEventMethod) {
+        JNIEnv* env = nullptr;
+        bool attached = false;
+        
+        int status = g_javaVM->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+        if (status == JNI_EDETACHED) {
+            if (g_javaVM->AttachCurrentThread(&env, nullptr) == JNI_OK) {
+                attached = true;
+            } else {
+                return;
+            }
+        }
+        
+        if (env) {
+            env->CallVoidMethod(g_pluginInstance, g_onRoutingEventMethod, static_cast<jint>(type), static_cast<jint>(code));
             if (env->ExceptionCheck()) {
                 env->ExceptionClear();
             }
@@ -249,11 +314,33 @@ static void createDrapeEngineIfNeeded(int width, int height, float density) {
     );
     __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", "createDrapeEngine: PlacePage listeners registered");
 
-    // Initialize RoutingManager listeners to avoid bad_function_call crash
+    // Register My Position mode change listener to notify UI about mode changes
+    g_framework->SetMyPositionModeListener(
+        [](location::EMyPositionMode mode, bool routingActive) {
+            notifyMyPositionModeChanged(mode, routingActive);
+        }
+    );
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", "createDrapeEngine: MyPositionMode listener registered");
+
+    // Initialize RoutingManager listeners
     auto & rm = g_framework->GetRoutingManager();
-    rm.SetRouteBuildingListener([](routing::RouterResultCode, storage::CountriesSet const &) {});
-    rm.SetRouteProgressListener([](float) {});
-    rm.SetRouteRecommendationListener([](RoutingManager::Recommendation) {});
+    rm.SetRouteBuildingListener([](routing::RouterResultCode code, storage::CountriesSet const &) {
+        __android_log_print(ANDROID_LOG_INFO, "AgusMapsFlutterNative", "Route building finished with code: %d", static_cast<int>(code));
+        if (code == routing::RouterResultCode::NoError || code == routing::RouterResultCode::HasWarnings) {
+            notifyRoutingEvent(1, static_cast<int>(code)); // BuildReady
+        } else {
+            notifyRoutingEvent(2, static_cast<int>(code)); // BuildFailed
+        }
+    });
+    rm.SetRouteProgressListener([](float progress) {
+        // Option to notify progress if needed
+    });
+    rm.SetRouteRecommendationListener([](RoutingManager::Recommendation recommend) {
+        if (recommend == RoutingManager::Recommendation::RebuildAfterPointsLoading) {
+            __android_log_print(ANDROID_LOG_INFO, "AgusMapsFlutterNative", "Route recommendation: RebuildAfterPointsLoading");
+            notifyRoutingEvent(3, 0); // RebuildStarted
+        }
+    });
     __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", "createDrapeEngine: Routing listeners registered");
     
     Framework::DrapeCreationParams p;
@@ -726,6 +813,16 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeInitFrameCall
         __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", 
             "nativeInitFrameCallback: Failed to find onPlacePageEvent method");
     }
+
+    g_onMyPositionModeChangedMethod = env->GetMethodID(cls, "onMyPositionModeChanged", "(I)V");
+    g_onRoutingEventMethod = env->GetMethodID(cls, "onRoutingEvent", "(II)V");
+    if (g_onMyPositionModeChangedMethod) {
+         __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+            "nativeInitFrameCallback: MyPositionMode change callback initialized");
+    } else {
+        __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", 
+            "nativeInitFrameCallback: Failed to find onMyPositionModeChanged method");
+    }
 }
 
 extern "C" JNIEXPORT jstring JNICALL
@@ -811,7 +908,11 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeFollowRoute(
     auto & rm = g_framework->GetRoutingManager();
     rm.FollowRoute();
     
-    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", "nativeFollowRoute: Navigation mode activated");
+    // Enable 3D perspective for navigation like in the Java app
+    // FollowRoute already sets the correct my position mode internally
+    g_framework->Allow3dMode(true, true);
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", "nativeFollowRoute: Navigation mode activated with 3D perspective");
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -819,13 +920,67 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeStopRouting(
     JNIEnv* env, jobject thiz) {
     if (!g_framework) return;
     g_framework->GetRoutingManager().CloseRouting(true);
+    
+    // Disable 3D perspective when stopping navigation
+    g_framework->Allow3dMode(false, false);
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", "nativeStopRouting: Navigation stopped, perspective reset");
 }
 
 extern "C" JNIEXPORT void JNICALL
 Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeSwitchMyPositionMode(
     JNIEnv* env, jobject thiz) {
-    if (!g_framework) return;
+    if (!g_framework || !g_drapeEngineCreated) {
+        __android_log_print(ANDROID_LOG_WARN, "AgusMapsFlutterNative", 
+            "nativeSwitchMyPositionMode: Framework or DrapeEngine not ready");
+        return;
+    }
+    
+    auto currentMode = g_framework->GetMyPositionMode();
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeSwitchMyPositionMode: current mode=%d", static_cast<int>(currentMode));
+    
     g_framework->SwitchMyPositionNextMode();
+    
+    auto newMode = g_framework->GetMyPositionMode();
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeSwitchMyPositionMode: new mode=%d", static_cast<int>(newMode));
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeGetMyPositionMode(
+    JNIEnv* env, jobject thiz) {
+    if (!g_framework || !g_drapeEngineCreated) return 0; // PENDING_POSITION
+    return static_cast<jint>(g_framework->GetMyPositionMode());
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeSetMyPositionMode(
+    JNIEnv* env, jobject thiz, jint mode) {
+    if (!g_framework || !g_drapeEngineCreated) {
+        __android_log_print(ANDROID_LOG_WARN, "AgusMapsFlutterNative", 
+            "nativeSetMyPositionMode: Framework or DrapeEngine not ready");
+        return;
+    }
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeSetMyPositionMode: setting mode to %d", mode);
+    
+    // Cycle through modes until we reach the desired one
+    // This is safer than directly setting the mode
+    auto currentMode = g_framework->GetMyPositionMode();
+    int attempts = 0;
+    const int maxAttempts = 5; // Prevent infinite loop
+    
+    while (static_cast<int>(currentMode) != mode && attempts < maxAttempts) {
+        g_framework->SwitchMyPositionNextMode();
+        currentMode = g_framework->GetMyPositionMode();
+        attempts++;
+    }
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeSetMyPositionMode: final mode=%d after %d attempts", 
+        static_cast<int>(currentMode), attempts);
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -844,13 +999,58 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeOnLocationUpd
     location::GpsInfo info;
     info.m_latitude = lat;
     info.m_longitude = lon;
-    info.m_horizontalAccuracy = accuracy;
-    info.m_bearing = bearing;
-    info.m_speed = speed;
     info.m_timestamp = static_cast<double>(time) / 1000.0;
-    info.m_source = location::EAndroidNative; // Android location
+    info.m_source = location::EAndroidNative;
     
+    // Always set accuracy (even if 0)
+    info.m_horizontalAccuracy = accuracy;
+    
+    // Set bearing if valid (bearing can be 0, which is valid - North)
+    if (bearing >= 0.0) {
+        info.m_bearing = bearing;
+    }
+    
+    // Set speed if valid (speed can be 0, which is valid - stationary)
+    if (speed >= 0.0) {
+        info.m_speed = speed;
+    }
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeOnLocationUpdate: lat=%.6f, lon=%.6f, accuracy=%.2f, bearing=%.2f, speed=%.2f, mode=%d", 
+        lat, lon, accuracy, bearing, speed, 
+        g_drapeEngineCreated ? static_cast<int>(g_framework->GetMyPositionMode()) : -1);
+    
+    // Send location update to framework (updates routing and visual position)
     g_framework->OnLocationUpdate(info);
+    
+    // Ensure the map redrawing is triggered for this location change
+    if (g_drapeEngineCreated) {
+        g_framework->InvalidateRendering();
+        g_framework->MakeFrameActive();
+    }
+    
+    // Also update GPS tracker (required for location tracking)
+    GpsTracker::Instance().OnLocationUpdated(info);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeOnCompassUpdate(
+    JNIEnv* env, jobject thiz, jdouble bearing) {
+    if (!g_framework) return;
+    
+    location::CompassInfo info;
+    info.m_bearing = bearing;
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeOnCompassUpdate: bearing=%.2f", bearing);
+    
+    g_framework->OnCompassUpdate(info);
+    
+    // Trigger map redraw for compass update
+    if (g_drapeEngineCreated) {
+        g_framework->InvalidateRendering();
+        g_framework->MakeFrameActive();
+    }
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -902,9 +1102,15 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeCleanupFrameC
     }
     g_notifyFrameReadyMethod = nullptr;
     g_onPlacePageEventMethod = nullptr;
+    g_onMyPositionModeChangedMethod = nullptr;
     
     // Clear the active frame callback
     df::SetActiveFrameCallback(nullptr);
+    
+    // Clear the mode change listener
+    if (g_framework) {
+        g_framework->SetMyPositionModeListener(location::TMyPositionModeChanged());
+    }
     
     __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
         "nativeCleanupFrameCallback: Frame notification callback cleaned up");
@@ -934,8 +1140,8 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeGetRouteFollo
     json << "\"distanceToTarget\":" << distToTargetMeters.GetDistance() << ",";
     json << "\"distanceToTurn\":" << distToTurnMeters.GetDistance() << ",";
     json << "\"timeToTarget\":" << info.m_time << ",";
-    json << "\"turn\":\"" << DebugPrint(info.m_turn) << "\",";
-    json << "\"nextTurn\":\"" << DebugPrint(info.m_nextTurn) << "\",";
+    json << "\"turn\":" << static_cast<int>(info.m_turn) << ",";
+    json << "\"nextTurn\":" << static_cast<int>(info.m_nextTurn) << ",";
     json << "\"exitNum\":" << info.m_exitNum << ",";
     json << "\"completionPercent\":" << info.m_completionPercent << ",";
     json << "\"speedLimitMps\":" << (info.m_speedLimitMps > 0 ? info.m_speedLimitMps : 0) << ",";

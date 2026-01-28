@@ -51,6 +51,16 @@ class MapCubit extends Bloc<MapEvent, MapState> {
     on<HandleMapSelection>(_onHandleMapSelection);
     on<DismissMapDownloadCheck>(_onDismissMapDownloadCheck);
     on<ReRegisterDownloadedMaps>(_onReRegisterDownloadedMaps);
+    
+    // Listen to native mode changes and update state automatically
+    // This will be called whenever the native engine changes the mode
+    mapController.onMyPositionModeChanged.listen((mode) {
+      _logger.info('My Position mode changed from native: $mode');
+      if (state is MapReady) {
+        final currentState = state as MapReady;
+        emit(currentState.copyWith(myPositionMode: mode));
+      }
+    });
   }
   
   /// Updates the user's location on the map.
@@ -58,6 +68,17 @@ class MapCubit extends Bloc<MapEvent, MapState> {
     if (state is MapReady) {
       final currentState = state as MapReady;
       emit(currentState.copyWith(location: location));
+    }
+  }
+
+  /// Switches to the next My Position mode.
+  /// The mode change will be automatically reflected in the state via the stream listener.
+  void switchMyPositionMode() {
+    try {
+      mapController.switchMyPositionMode();
+      _logger.info('Switching My Position mode...');
+    } catch (e, stackTrace) {
+      _logger.error('Failed to switch My Position mode', error: e, stackTrace: stackTrace);
     }
   }
 
@@ -74,13 +95,31 @@ class MapCubit extends Bloc<MapEvent, MapState> {
       }
     });
     
+    // Wait for DrapeEngine to be fully created before trying to get/set mode
+    // The DrapeEngine creation happens asynchronously after surface is set
+    await Future.delayed(const Duration(milliseconds: 1500));
+    
+    // Get initial mode from native and update state
+    try {
+      final initialMode = await mapController.getMyPositionMode();
+      if (state is MapReady) {
+        final currentState = state as MapReady;
+        emit(currentState.copyWith(myPositionMode: initialMode));
+        _logger.info('Initial My Position mode: $initialMode');
+      }
+    } catch (e) {
+      _logger.error('Failed to get initial mode', error: e);
+    }
+    
     // Activate My Position mode automatically
+    // This will switch from mode 0 (PENDING) to mode 3 (FOLLOW)
+    // The mode change will be reflected in state via the stream listener
     Future.delayed(const Duration(milliseconds: 500), () {
+      _logger.info('Attempting to switch My Position mode...');
       mapController.switchMyPositionMode();
     });
     
     // After maps are registered, check if we need to download more
-    // Wait a bit to ensure registration is complete
     Future.delayed(const Duration(milliseconds: 1000), () {
       if (state is MapReady) {
         final location = (state as MapReady).location;

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:geolocator/geolocator.dart';
 import 'package:rikera_app/core/utils/logger.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
@@ -25,10 +26,10 @@ class LocationRepositoryImpl implements LocationRepository {
   Location? _lastEmittedLocation;
 
   /// Minimum time between location updates in milliseconds.
-  static const int _minUpdateIntervalMs = 1000;
+  static const int _minUpdateIntervalMs = 500;
 
   /// Minimum distance between location updates in meters.
-  static const double _minUpdateDistanceMeters = 5.0;
+  static const double _minUpdateDistanceMeters = 1.0;
 
   LocationRepositoryImpl({required LocationDataSource locationDataSource})
     : _locationDataSource = locationDataSource;
@@ -235,16 +236,20 @@ class LocationRepositoryImpl implements LocationRepository {
   /// Uses a simple Euclidean approximation for short distances.
   /// This is faster than the Haversine formula and sufficient for
   /// filtering purposes.
+  /// Calculates the approximate distance between two locations in meters.
   double _calculateDistance(Location from, Location to) {
     const metersPerDegree = 111320.0; // Approximate at equator
 
     final latDiff = (to.latitude - from.latitude) * metersPerDegree;
-    final lonDiff =
-        (to.longitude - from.longitude) *
+    
+    // Better correction for longitude based on average latitude
+    final avgLatRad = (from.latitude + to.latitude) / 2.0 * pi / 180.0;
+    final lonDiff = (to.longitude - from.longitude) *
         metersPerDegree *
-        0.5; // Rough correction for longitude
+        cos(avgLatRad);
 
-    return (latDiff * latDiff + lonDiff * lonDiff).abs();
+    // Return actual distance in meters
+    return sqrt(latDiff * latDiff + lonDiff * lonDiff);
   }
 
   /// Disposes of resources used by this repository.

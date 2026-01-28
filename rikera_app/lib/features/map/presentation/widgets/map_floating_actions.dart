@@ -6,6 +6,7 @@ import '../blocs/blocs.dart';
 import '../screens/search_screen.dart';
 import '../screens/bookmarks_screen.dart';
 import '../screens/map_downloads_screen.dart';
+import 'my_location_button.dart';
 
 /// Floating action buttons for map controls.
 ///
@@ -35,11 +36,7 @@ class MapFloatingActions extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _MapActionButton(
-                    icon: Icons.my_location,
-                    label: 'My Location',
-                    onPressed: () => mapController.switchMyPositionMode(),
-                  ),
+                  MyLocationButton(),
                   const SizedBox(height: AppSpacing.md),
                   _MapActionButton(
                     icon: Icons.add,
@@ -57,53 +54,60 @@ class MapFloatingActions extends StatelessWidget {
             ),
 
             // Right side controls (Menu & Tools)
-            Align(
-              alignment: Alignment.bottomRight,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  _MapActionButton(
-                    icon: Icons.search,
-                    label: 'Search',
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const SearchScreen(),
+            BlocBuilder<RouteBloc, RouteState>(
+              builder: (context, state) {
+                if (state is RouteCalculated || state is RouteCalculating) {
+                  return const SizedBox.shrink();
+                }
+                return Align(
+                  alignment: Alignment.bottomRight,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      _MapActionButton(
+                        icon: Icons.search,
+                        label: 'Search',
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const SearchScreen(),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  _MapActionButton(
-                    icon: Icons.bookmarks,
-                    label: 'Bookmarks',
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const BookmarksScreen(),
+                      const SizedBox(height: AppSpacing.md),
+                      _MapActionButton(
+                        icon: Icons.bookmarks,
+                        label: 'Bookmarks',
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const BookmarksScreen(),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  _MapActionButton(
-                    icon: Icons.download,
-                    label: 'Maps',
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const MapDownloadsScreen(),
+                      const SizedBox(height: AppSpacing.md),
+                      _MapActionButton(
+                        icon: Icons.download,
+                        label: 'Maps',
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const MapDownloadsScreen(),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  _MapActionButton(
-                    icon: Icons.settings,
-                    label: 'Settings',
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => const SettingsScreen(),
+                      const SizedBox(height: AppSpacing.md),
+                      _MapActionButton(
+                        icon: Icons.settings,
+                        label: 'Settings',
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const SettingsScreen(),
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             ),
           ],
         ),

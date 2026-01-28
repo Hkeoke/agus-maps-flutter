@@ -1,0 +1,15 @@
+diff --git a/libs/drape_frontend/arrow3d.cpp b/libs/drape_frontend/arrow3d.cpp
+index 449733454..91e949c0a 100644
+--- a/libs/drape_frontend/arrow3d.cpp
++++ b/libs/drape_frontend/arrow3d.cpp
+@@ -29,8 +29,8 @@ namespace df
+ namespace arrow3d
+ {
+ double constexpr kArrowSize = 12.0;
+-double constexpr kArrow3dScaleMin = 1.0;
+-double constexpr kArrow3dScaleMax = 2.2;
++double constexpr kArrow3dScaleMin = 0.8;
++double constexpr kArrow3dScaleMax = 1.6;
+ int constexpr kArrow3dMinZoom = 16;
+ }  // namespace arrow3d
+ 

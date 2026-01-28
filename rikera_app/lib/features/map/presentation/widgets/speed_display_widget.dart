@@ -25,7 +25,11 @@ class SpeedDisplayWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final currentSpeed = navigationState.currentLocation.speed ?? 0.0;
-    final speedLimitKmh = navigationState.currentSegment?.speedLimitKmh;
+    
+    // Speed limit from native engine (mps to kmh)
+    final speedLimitKmh = navigationState.speedLimitMetersPerSecond != null 
+        ? navigationState.speedLimitMetersPerSecond! * 3.6 
+        : null;
 
     // Convert m/s to km/h
     final currentSpeedKmh = currentSpeed * 3.6;
@@ -68,35 +72,35 @@ class SpeedDisplayWidget extends StatelessWidget {
   ///
   /// Requirements: 15.2, 15.3, 15.4
   Widget _buildCurrentSpeed(double speed, bool isExceeding) {
-    return Column(
-      children: [
-        Text(
-          speed.round().toString(),
-          style: TextStyle(
-            fontSize: 64,
-            fontWeight: FontWeight.bold,
-            color: isExceeding ? Colors.red : Colors.white,
-            height: 1.0,
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: Colors.black.withAlpha(150),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            speed.round().toString(),
+            style: TextStyle(
+              fontSize: 48,
+              fontWeight: FontWeight.bold,
+              color: isExceeding ? Colors.red : Colors.white,
+              height: 1.0,
+            ),
           ),
-        ),
-        Text(
-          speedUnit.displayName,
-          style: TextStyle(
-            fontSize: 16,
-            color: isExceeding
-                ? Colors.red.withValues(alpha: 0.8)
-                : Colors.white.withValues(alpha: 0.8),
+          Text(
+            speedUnit.displayName,
+            style: TextStyle(
+              fontSize: 14,
+              color: isExceeding
+                  ? Colors.red.withValues(alpha: 0.8)
+                  : Colors.white.withValues(alpha: 0.8),
+            ),
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Current',
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.white.withValues(alpha: 0.6),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

@@ -40,7 +40,7 @@ class LocationDataSource {
     // Configure location settings for navigation
     const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 5, // Update every 5 meters
+      distanceFilter: 0, // Receive all updates for maximum smoothness
       timeLimit: Duration(seconds: 10),
     );
 

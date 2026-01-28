@@ -49,6 +49,18 @@ class NavigationRepositoryImpl implements NavigationRepository {
       _currentRoute = route;
       _isNavigating = true;
 
+      // Activate route following mode in native engine
+      // This tells the native code that navigation is active, which affects:
+      // - My Position mode cycling (will use FOLLOW_AND_ROTATE in navigation)
+      // - Auto-zoom behavior
+      // - Route following logic
+      if (_mapController != null) {
+        await _mapController!.followRoute();
+        _logger.info('Route following mode activated in native engine');
+      } else {
+        _logger.warning('Map controller not available, navigation mode not activated');
+      }
+
       // Start polling navigation state from native engine
       _startNavigationPolling();
 
@@ -80,6 +92,13 @@ class NavigationRepositoryImpl implements NavigationRepository {
       // Stop polling
       _navigationPollTimer?.cancel();
       _navigationPollTimer = null;
+      
+      // Deactivate route following mode in native engine
+      // This tells the native code that navigation is no longer active
+      if (_mapController != null) {
+        await _mapController!.disableFollowing();
+        _logger.info('Route following mode deactivated in native engine');
+      }
       
       _isNavigating = false;
       _currentRoute = null;
@@ -123,9 +142,6 @@ class NavigationRepositoryImpl implements NavigationRepository {
   }
 
   /// Polls navigation state from the native CoMaps engine.
-  /// 
-  /// This method is called periodically during navigation to fetch
-  /// real-time navigation data from the native engine.
   Future<void> _pollNavigationState() async {
     try {
       if (!_isNavigating || _currentRoute == null || _currentLocation == null || _mapController == null) {
@@ -146,6 +162,7 @@ class NavigationRepositoryImpl implements NavigationRepository {
           remainingDistanceMeters: 0,
           remainingTimeSeconds: 0,
           isOffRoute: false,
+          turnDirection: TurnDirection.destination,
         );
         return;
       }
@@ -161,30 +178,27 @@ class NavigationRepositoryImpl implements NavigationRepository {
       final distanceToTarget = (routeInfo['distanceToTarget'] as num?)?.toDouble() ?? 0.0;
       final timeToTarget = (routeInfo['timeToTarget'] as num?)?.toInt() ?? 0;
       final distanceToTurn = (routeInfo['distanceToTurn'] as num?)?.toDouble() ?? 0.0;
-      final turnInfo = routeInfo['turn'] as Map<String, dynamic>?;
-      final nextTurnInfo = routeInfo['nextTurn'] as Map<String, dynamic>?;
-      
-      // Determine current and next segments based on turn info
-      RouteSegment? currentSegment;
-      RouteSegment? nextSegment;
-      
-      if (turnInfo != null && _currentRoute!.segments.isNotEmpty) {
-        // Try to match turn info to route segments
-        // For now, use first segment as current (simplified)
-        currentSegment = _currentRoute!.segments.first;
-        if (_currentRoute!.segments.length > 1) {
-          nextSegment = _currentRoute!.segments[1];
-        }
-      }
+      final turnInt = (routeInfo['turn'] as num?)?.toInt() ?? 0;
+      final nextTurnInt = (routeInfo['nextTurn'] as num?)?.toInt() ?? 0;
+      final speedLimitMps = (routeInfo['speedLimitMps'] as num?)?.toDouble() ?? 0.0;
+      final currentStreet = routeInfo['currentStreetName'] as String?;
+      final nextStreet = routeInfo['nextStreetName'] as String?;
+
+      // Map native turn to TurnDirection
+      final turnDirection = _mapNativeTurnToTurnDirection(turnInt);
 
       // Emit navigation state with native data
       _emitNavigationState(
-        currentSegment: currentSegment,
-        nextSegment: nextSegment,
+        currentSegment: null, // Segments are not strictly needed if we have turn info
+        nextSegment: null,
         distanceToNextTurnMeters: distanceToTurn,
         remainingDistanceMeters: distanceToTarget,
         remainingTimeSeconds: timeToTarget,
-        isOffRoute: false, // Native engine handles off-route detection
+        isOffRoute: false,
+        currentStreetName: currentStreet,
+        nextStreetName: nextStreet,
+        turnDirection: turnDirection,
+        speedLimitMetersPerSecond: speedLimitMps > 0 ? speedLimitMps : null,
       );
     } catch (e, stackTrace) {
       _logger.error(
@@ -192,6 +206,28 @@ class NavigationRepositoryImpl implements NavigationRepository {
         error: e,
         stackTrace: stackTrace,
       );
+    }
+  }
+
+  /// Maps native CarDirection integer to [TurnDirection] enum.
+  TurnDirection _mapNativeTurnToTurnDirection(int nativeTurn) {
+    switch (nativeTurn) {
+      case 1: return TurnDirection.straight;
+      case 2: return TurnDirection.slightLeft;
+      case 3: return TurnDirection.left;
+      case 4: return TurnDirection.sharpLeft;
+      case 5: return TurnDirection.uTurnLeft;
+      case 6: return TurnDirection.slightRight;
+      case 7: return TurnDirection.right;
+      case 8: return TurnDirection.sharpRight;
+      case 9:
+      case 10: return TurnDirection.roundabout;
+      case 11:
+      case 14: return TurnDirection.exitRoundabout;
+      case 12: return TurnDirection.slightLeft;
+      case 13: return TurnDirection.slightRight;
+      case 15: return TurnDirection.destination;
+      default: return TurnDirection.straight;
     }
   }
 
@@ -206,6 +242,10 @@ class NavigationRepositoryImpl implements NavigationRepository {
     required double remainingDistanceMeters,
     required int remainingTimeSeconds,
     required bool isOffRoute,
+    String? currentStreetName,
+    String? nextStreetName,
+    TurnDirection? turnDirection,
+    double? speedLimitMetersPerSecond,
   }) {
     if (_currentRoute == null || _currentLocation == null) {
       return;
@@ -220,6 +260,10 @@ class NavigationRepositoryImpl implements NavigationRepository {
       remainingDistanceMeters: remainingDistanceMeters,
       remainingTimeSeconds: remainingTimeSeconds,
       isOffRoute: isOffRoute,
+      currentStreetName: currentStreetName,
+      nextStreetName: nextStreetName,
+      turnDirection: turnDirection,
+      speedLimitMetersPerSecond: speedLimitMetersPerSecond,
     );
 
     _navigationStateController.add(state);

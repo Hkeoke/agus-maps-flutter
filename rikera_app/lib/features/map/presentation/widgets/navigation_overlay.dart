@@ -30,50 +30,88 @@ class NavigationOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
-        children: [
-          // Top section: Turn instructions, speed, ETA
-          Container(
-            color: Colors.black.withValues(alpha: 0.7),
-            child: Column(
-              children: [
-                // Turn instruction display
-                TurnInstructionWidget(navigationState: navigationState),
-
-                const SizedBox(height: 16),
-
-                // Speed display
-                SpeedDisplayWidget(
-                  navigationState: navigationState,
-                  speedUnit: SpeedUnit.kmh, // TODO: Get from settings
+    return Stack(
+      children: [
+        // Top section: Turn instructions
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            margin: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A73E8), // Google Maps Blue
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withAlpha(80),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
                 ),
-
-                const SizedBox(height: 16),
-
-                // ETA and distance display
-                EtaDisplayWidget(navigationState: navigationState),
-
-                const SizedBox(height: 16),
               ],
             ),
+            child: TurnInstructionWidget(navigationState: navigationState),
           ),
+        ),
 
-          const Spacer(),
-
-          // Bottom section: Navigation controls
-          Container(
-            color: Colors.black.withValues(alpha: 0.7),
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: NavigationControlsWidget(
-              onStopNavigation: onStopNavigation,
-              onToggleVoice: onToggleVoice,
-              onSettings: onSettings,
-              isVoiceEnabled: isVoiceEnabled,
-            ),
+        // Bottom section: Speed, ETA, Controls
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Speed and Speed Limit floating on the left/bottom
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    SpeedDisplayWidget(
+                      navigationState: navigationState,
+                      speedUnit: SpeedUnit.kmh,
+                    ),
+                    const Spacer(),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              
+              // Bottom Bar with ETA and Controls
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1C1C1E), // Dark Mode card color
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withAlpha(100),
+                      blurRadius: 15,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                padding: const EdgeInsets.fromLTRB(AppSpacing.md, AppSpacing.md, AppSpacing.md, 32),
+                child: Column(
+                  children: [
+                    EtaDisplayWidget(navigationState: navigationState),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.0),
+                      child: Divider(color: Colors.white24),
+                    ),
+                    NavigationControlsWidget(
+                      onStopNavigation: onStopNavigation,
+                      onToggleVoice: onToggleVoice,
+                      onSettings: onSettings,
+                      isVoiceEnabled: isVoiceEnabled,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

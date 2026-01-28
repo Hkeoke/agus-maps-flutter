@@ -13,6 +13,7 @@ export 'navigation_controls_widget.dart';
 export 'navigation_overlay.dart';
 export 'arrival_dialog.dart';
 export 'map_floating_actions.dart';
+export 'my_location_button.dart';
 export 'place_page_sheet.dart';
 export 'map_download_dialog.dart';
 export 'search_input_field.dart';
@@ -22,4 +23,3 @@ export 'search_result_item.dart';
 export 'storage_header.dart';
 export 'region_list_item.dart';
 export 'delete_region_dialog.dart';
-
