@@ -183,7 +183,7 @@ class MapScreen extends StatelessWidget {
                                   onPressed: () {
                                     Navigator.of(context).push(
                                       MaterialPageRoute(
-                                        builder: (_) => NavigationScreen(),
+                                        builder: (_) => NavigationScreen(route: state.route),
                                       ),
                                     );
                                   },

@@ -1,8 +1,9 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Route;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:agus_maps_flutter/agus_maps_flutter.dart';
 import 'package:rikera_app/core/theme/theme.dart';
 import 'package:rikera_app/features/map/presentation/blocs/blocs.dart';
+import 'package:rikera_app/features/map/domain/entities/entities.dart';
 import 'package:rikera_app/features/map/presentation/screens/navigation_screen.dart';
 
 /// Bottom sheet displaying place information when map is tapped.
@@ -59,13 +60,34 @@ class PlacePageSheet extends StatelessWidget {
                     
                     // Navigate to navigation screen
                     // The native engine is now following the route
-                    if (context.mounted) {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const NavigationScreen(),
+                      // Create route object with destination
+                      // This ensures NavigationRepository has destination for recalculation
+                      final route = Route(
+                        waypoints: [
+                          Location(
+                            latitude: dLat,
+                            longitude: dLon,
+                            timestamp: DateTime.now(),
+                          ),
+                        ],
+                        totalDistanceMeters: 0,
+                        estimatedTimeSeconds: 0,
+                        segments: [],
+                        bounds: const RouteBounds(
+                          minLatitude: 0,
+                          minLongitude: 0,
+                          maxLatitude: 0,
+                          maxLongitude: 0,
                         ),
                       );
-                    }
+
+                      if (context.mounted) {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => NavigationScreen(route: route),
+                          ),
+                        );
+                      }
                   }
                 },
               ),

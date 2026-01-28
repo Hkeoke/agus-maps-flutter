@@ -31,6 +31,7 @@ class NavigationRepositoryImpl implements NavigationRepository {
 
   /// Timer for polling navigation state from native engine.
   Timer? _navigationPollTimer;
+  StreamSubscription<RoutingEvent>? _routingEventSubscription;
 
   /// Polling interval for navigation updates (milliseconds).
   static const int _pollIntervalMs = 1000;
@@ -57,6 +58,10 @@ class NavigationRepositoryImpl implements NavigationRepository {
       if (_mapController != null) {
         await _mapController!.followRoute();
         _logger.info('Route following mode activated in native engine');
+
+        // Listen to routing events for recalculation triggers
+        _routingEventSubscription?.cancel();
+        _routingEventSubscription = _mapController!.onRoutingEvent.listen(_handleRoutingEvent);
       } else {
         _logger.warning('Map controller not available, navigation mode not activated');
       }
@@ -92,6 +97,9 @@ class NavigationRepositoryImpl implements NavigationRepository {
       // Stop polling
       _navigationPollTimer?.cancel();
       _navigationPollTimer = null;
+      
+      _routingEventSubscription?.cancel();
+      _routingEventSubscription = null;
       
       // Deactivate route following mode in native engine
       // This tells the native code that navigation is no longer active
@@ -273,5 +281,35 @@ class NavigationRepositoryImpl implements NavigationRepository {
   void dispose() {
     _navigationPollTimer?.cancel();
     _navigationStateController.close();
+  }
+
+  void _handleRoutingEvent(RoutingEvent event) {
+    if (event.type == RoutingEvent.rebuildStarted) {
+      _logger.info('Received route rebuild recommendation from native engine (off-route detected)');
+      _rebuildRoute();
+    }
+  }
+
+  Future<void> _rebuildRoute() async {
+    if (_currentRoute == null || _mapController == null) {
+      _logger.warning('Cannot rebuild route: no current route or controller');
+      return;
+    }
+
+    try {
+      // The route waypoints list should contain at least origin and destination
+      // We want to rebuild to the original destination
+      if (_currentRoute!.waypoints.isNotEmpty) {
+        final dest = _currentRoute!.waypoints.last;
+        _logger.info('Rebuilding route to destination: ${dest.latitude}, ${dest.longitude}');
+        
+        // This will trigger a route rebuild from current position to destination
+        await _mapController!.buildRoute(dest.latitude, dest.longitude);
+      } else {
+        _logger.warning('Cannot rebuild route: waypoints list is empty');
+      }
+    } catch (e) {
+      _logger.error('Failed to rebuild route', error: e);
+    }
   }
 }

@@ -43,10 +43,24 @@ Future<int> sumAsync(int a, int b) async {
   return completer.future;
 }
 
+// Routing event types from native engine
+class RoutingEvent {
+  static const int buildStarted = 0;
+  static const int buildReady = 1;
+  static const int buildFailed = 2;
+  static const int rebuildStarted = 3;
+
+  final int type;
+  final int code;
+
+  RoutingEvent(this.type, this.code);
+}
+
 final _channel = const MethodChannel('agus_maps_flutter');
 
 final StreamController<int> _placePageEventController = StreamController<int>.broadcast();
 final StreamController<int> _myPositionModeChangedController = StreamController<int>.broadcast();
+final StreamController<RoutingEvent> _routingEventController = StreamController<RoutingEvent>.broadcast();
 bool _channelInitialized = false;
 
 void _ensureChannelInitialized() {
@@ -58,6 +72,11 @@ void _ensureChannelInitialized() {
     } else if (call.method == 'onMyPositionModeChanged') {
       final int mode = call.arguments as int;
       _myPositionModeChangedController.add(mode);
+    } else if (call.method == 'onRoutingEvent') {
+      final args = call.arguments as Map<dynamic, dynamic>;
+      final type = args['type'] as int;
+      final code = args['code'] as int;
+      _routingEventController.add(RoutingEvent(type, code));
     }
   });
   _channelInitialized = true;
@@ -417,6 +436,17 @@ class AgusMapController {
   Stream<int> get onMyPositionModeChanged {
     _ensureChannelInitialized();
     return _myPositionModeChangedController.stream;
+  }
+
+  /// Stream of Routing events.
+  /// Events include:
+  /// - buildStarted (0)
+  /// - buildReady (1)
+  /// - buildFailed (2)
+  /// - rebuildStarted (3) - Triggered when engine recommends rebuild (e.g. off-route)
+  Stream<RoutingEvent> get onRoutingEvent {
+    _ensureChannelInitialized();
+    return _routingEventController.stream;
   }
 
   /// Get details of the currently selected object.

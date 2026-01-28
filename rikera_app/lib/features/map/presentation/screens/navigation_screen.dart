@@ -9,7 +9,12 @@ import 'package:rikera_app/features/map/presentation/widgets/widgets.dart';
 ///
 /// Requirements: 6.1, 6.2, 6.6, 5.3, 6.7, 9.1, 9.2, 9.4, 14.4, 15.1-15.5
 class NavigationScreen extends StatefulWidget {
-  const NavigationScreen({super.key});
+  final Route route;
+  
+  const NavigationScreen({
+    super.key,
+    required this.route,
+  });
 
   @override
   State<NavigationScreen> createState() => _NavigationScreenState();
@@ -36,18 +41,7 @@ class _NavigationScreenState extends State<NavigationScreen> {
     
     // Create a minimal route entity for navigation
     // The native engine already has the route, we just need a placeholder
-    final route = Route(
-      waypoints: [], // Native engine has the actual waypoints
-      totalDistanceMeters: 0, // Will be updated from native
-      estimatedTimeSeconds: 0, // Will be updated from native
-      segments: [], // Native engine has the actual segments
-      bounds: const RouteBounds(
-        minLatitude: 0,
-        minLongitude: 0,
-        maxLatitude: 0,
-        maxLongitude: 0,
-      ),
-    );
+    final route = widget.route;
 
     // Start navigation with map controller
     navigationBloc.add(StartNavigation(route, mapController: mapCubit.mapController));
