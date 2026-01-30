@@ -5,6 +5,5 @@ export 'bookmark_repository.dart';
 export 'location_repository.dart';
 export 'map_repository.dart';
 export 'map_view_state_repository.dart';
-export 'navigation_repository.dart';
 export 'route_repository.dart';
 export 'search_repository.dart';

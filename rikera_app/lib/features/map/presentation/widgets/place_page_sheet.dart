@@ -3,8 +3,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:agus_maps_flutter/agus_maps_flutter.dart';
 import 'package:rikera_app/core/theme/theme.dart';
 import 'package:rikera_app/features/map/presentation/blocs/blocs.dart';
+import 'package:rikera_app/features/map/presentation/blocs/navigation_info/navigation_info_cubit.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
-import 'package:rikera_app/features/map/presentation/screens/navigation_screen.dart';
 
 /// Bottom sheet displaying place information when map is tapped.
 ///
@@ -54,40 +54,26 @@ class PlacePageSheet extends StatelessWidget {
                         ? double.parse(lon)
                         : (lon as num).toDouble();
                     
-                    // Build route via MapCubit and get controller
-                    final mapCubit = context.read<MapCubit>();
-                    await mapCubit.buildRouteAndPrepareNavigation(dLat, dLon);
+                    print('[PlacePageSheet] Building route to: $dLat, $dLon');
                     
-                    // Navigate to navigation screen
-                    // The native engine is now following the route
-                      // Create route object with destination
-                      // This ensures NavigationRepository has destination for recalculation
-                      final route = Route(
-                        waypoints: [
-                          Location(
-                            latitude: dLat,
-                            longitude: dLon,
-                            timestamp: DateTime.now(),
-                          ),
-                        ],
-                        totalDistanceMeters: 0,
-                        estimatedTimeSeconds: 0,
-                        segments: [],
-                        bounds: const RouteBounds(
-                          minLatitude: 0,
-                          minLongitude: 0,
-                          maxLatitude: 0,
-                          maxLongitude: 0,
-                        ),
-                      );
-
-                      if (context.mounted) {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => NavigationScreen(route: route),
-                          ),
-                        );
-                      }
+                    // Simply call buildRoute on the motor
+                    // The motor will:
+                    // 1. Calculate the route
+                    // 2. Activate navigation mode (mode 4)
+                    // 3. Start following the route
+                    // 4. Calculate real-time navigation info
+                    await mapController.buildRoute(dLat, dLon);
+                    
+                    print('[PlacePageSheet] Route built, starting navigation info polling');
+                    
+                    // Start navigation info polling
+                    // This will keep showing navigation info even when user moves the map
+                    // (which changes mode from 4 to 3)
+                    if (context.mounted) {
+                      context.read<NavigationInfoCubit>().startNavigation();
+                    }
+                    
+                    print('[PlacePageSheet] Navigation started!');
                   }
                 },
               ),

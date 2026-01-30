@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart' hide Route;
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -33,6 +34,7 @@ class MapCubit extends Bloc<MapEvent, MapState> {
   final AppLogger _logger = const AppLogger('MapCubit');
   bool _bundledMapsRegistered = false;
   bool _hasCheckedMapDownload = false;
+  StreamSubscription<int>? _modeSubscription;
   
   // Map controller managed by the BLoC
   late final AgusMapController mapController;
@@ -46,21 +48,13 @@ class MapCubit extends Bloc<MapEvent, MapState> {
         _mapRepository = mapRepository,
         super(const MapInitial()) {
     mapController = AgusMapController();
+    
     on<MapReadyEvent>(_onMapReady);
     on<CheckMapDownloadRequired>(_onCheckMapDownloadRequired);
     on<HandleMapSelection>(_onHandleMapSelection);
     on<DismissMapDownloadCheck>(_onDismissMapDownloadCheck);
     on<ReRegisterDownloadedMaps>(_onReRegisterDownloadedMaps);
-    
-    // Listen to native mode changes and update state automatically
-    // This will be called whenever the native engine changes the mode
-    mapController.onMyPositionModeChanged.listen((mode) {
-      _logger.info('My Position mode changed from native: $mode');
-      if (state is MapReady) {
-        final currentState = state as MapReady;
-        emit(currentState.copyWith(myPositionMode: mode));
-      }
-    });
+    on<MyPositionModeChanged>(_onMyPositionModeChanged);
   }
   
   /// Updates the user's location on the map.
@@ -85,6 +79,16 @@ class MapCubit extends Bloc<MapEvent, MapState> {
   /// Handles map ready event.
   Future<void> _onMapReady(MapReadyEvent event, Emitter<MapState> emit) async {
     emit(const MapReady());
+    
+    // Listen to native mode changes and update state automatically
+    // Use add() to dispatch events instead of emit() to avoid completion error
+    _modeSubscription?.cancel();
+    _modeSubscription = mapController.onMyPositionModeChanged.listen((mode) {
+      _logger.info('My Position mode changed from native: $mode');
+      // Dispatch event instead of emitting directly
+      add(MyPositionModeChanged(mode));
+    });
+    
     await registerBundledMaps();
     add(const ReRegisterDownloadedMaps());
     
@@ -128,6 +132,18 @@ class MapCubit extends Bloc<MapEvent, MapState> {
         }
       }
     });
+  }
+  
+  /// Handles My Position mode changes from native.
+  void _onMyPositionModeChanged(
+    MyPositionModeChanged event,
+    Emitter<MapState> emit,
+  ) {
+    _logger.info('Handling mode change event: ${event.mode}');
+    if (state is MapReady) {
+      final currentState = state as MapReady;
+      emit(currentState.copyWith(myPositionMode: event.mode));
+    }
   }
   
   /// Handles map selection asynchronously.
@@ -465,32 +481,30 @@ class MapCubit extends Bloc<MapEvent, MapState> {
     }
   }
 
-  /// Builds a route to the specified destination and prepares for navigation.
+  /// Builds a route to the specified destination.
   ///
-  /// This method:
-  /// 1. Calls the native engine to build a route
-  /// 2. Waits briefly for route calculation
-  /// 3. Returns the map controller for navigation start
-  ///
-  /// The caller should then dispatch StartNavigation event with the returned controller.
+  /// The motor handles everything automatically:
+  /// - Route calculation
+  /// - Navigation mode activation (mode 4)
+  /// - Real-time navigation info
   ///
   /// Requirements: 6.1
-  Future<AgusMapController> buildRouteAndPrepareNavigation(
-    double lat,
-    double lon,
-  ) async {
+  Future<void> buildRoute(double lat, double lon) async {
     _logger.info('Building route to lat=$lat, lon=$lon');
     
     // Call native to build route
-    // The native code will automatically activate navigation mode when route is ready
+    // The motor will automatically:
+    // 1. Calculate the route
+    // 2. Activate navigation mode (mode 4 = FollowAndRotate)
+    // 3. Start providing real-time navigation info via getRouteFollowingInfo()
     await mapController.buildRoute(lat, lon);
     
-    // Wait briefly for route calculation to complete
-    // The native listener will automatically call FollowRoute() when ready
-    await Future.delayed(const Duration(milliseconds: 1500));
-    
-    _logger.info('Route build completed, navigation mode will be activated automatically');
-    return mapController;
+    _logger.info('Route build requested - motor handles everything automatically');
+  }
+  
+  @override
+  Future<void> close() {
+    _modeSubscription?.cancel();
+    return super.close();
   }
 }
-

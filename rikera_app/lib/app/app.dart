@@ -4,6 +4,7 @@ import 'package:rikera_app/core/di/injection_container.dart';
 import 'package:rikera_app/core/services/memory_management_service.dart';
 import 'package:rikera_app/core/theme/app_theme.dart';
 import 'package:rikera_app/features/map/presentation/blocs/blocs.dart';
+import 'package:rikera_app/features/map/presentation/blocs/navigation_info/navigation_info_cubit.dart';
 import 'package:rikera_app/features/map/presentation/screens/screens.dart';
 import 'package:rikera_app/features/settings/presentation/bloc/settings_bloc.dart';
 import 'package:rikera_app/features/settings/presentation/bloc/settings_event.dart';
@@ -110,10 +111,11 @@ class _RikeraAppState extends State<RikeraApp> with WidgetsBindingObserver {
         BlocProvider(create: (_) => sl<MapCubit>()),
         BlocProvider(create: (_) => sl<LocationBloc>()),
         BlocProvider(create: (_) => sl<RouteBloc>()),
-        BlocProvider(create: (_) => sl<NavigationBloc>()),
         BlocProvider(create: (_) => sl<SearchBloc>()),
         BlocProvider(create: (_) => sl<MapDownloadBloc>()),
         BlocProvider(create: (_) => sl<BookmarkBloc>()),
+        // Simple cubit for navigation info - reads directly from motor
+        BlocProvider(create: (_) => sl<NavigationInfoCubit>()),
       ],
       child: BlocBuilder<SettingsBloc, SettingsState>(
         builder: (context, state) {
@@ -168,6 +170,10 @@ class _ThemeAwareMapScreenState extends State<_ThemeAwareMapScreen>
       _syncMapStyle();
       // Start location tracking
       context.read<LocationBloc>().add(const StartTracking());
+      // Inject map controller into NavigationInfoCubit
+      final mapCubit = context.read<MapCubit>();
+      final navInfoCubit = context.read<NavigationInfoCubit>();
+      navInfoCubit.setMapController(mapCubit.mapController);
     });
   }
 

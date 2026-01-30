@@ -16,17 +16,17 @@ class MyLocationButton extends StatelessWidget {
   IconData _getIconForMode(int mode) {
     switch (mode) {
       case 0: // PENDING_POSITION - searching/loading
-        return Icons.location_searching;
+         return Icons.navigation;
       case 1: // NOT_FOLLOW_NO_POSITION - location disabled
         return Icons.location_disabled;
       case 2: // NOT_FOLLOW - crosshair (location available but not following)
         return Icons.gps_not_fixed; // Crosshair icon
       case 3: // FOLLOW - following location (arrow pointing up)
         return Icons.navigation_outlined; // Arrow icon
-      case 4: // FOLLOW_AND_ROTATE - following with rotation (filled arrow)
-        return Icons.navigation; // Filled navigation arrow
+      case 4: // FOLLOW_AND_ROTATE - NAVIGATION MODE - always show filled arrow
+        return Icons.navigation; // Filled navigation arrow (FORCED)
       default:
-        return Icons.location_searching;
+         return Icons.navigation;
     }
   }
 

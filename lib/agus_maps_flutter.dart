@@ -482,10 +482,14 @@ class AgusMapController {
   /// - speedLimitMps: Speed limit in meters per second
   /// - completionPercent: Route completion percentage
   Future<Map<String, dynamic>?> getRouteFollowingInfo() async {
+    debugPrint('[AgusMapController] getRouteFollowingInfo: Calling native method');
     final String? jsonStr = await _channel.invokeMethod('getRouteFollowingInfo');
+    debugPrint('[AgusMapController] getRouteFollowingInfo: Received JSON: $jsonStr');
     if (jsonStr == null) return null;
     try {
-      return jsonDecode(jsonStr) as Map<String, dynamic>;
+      final result = jsonDecode(jsonStr) as Map<String, dynamic>;
+      debugPrint('[AgusMapController] getRouteFollowingInfo: Parsed result: $result');
+      return result;
     } catch (e) {
       debugPrint('Error decoding route following info: $e');
       return null;

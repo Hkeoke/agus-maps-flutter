@@ -43,3 +43,13 @@ class DismissMapDownloadCheck extends MapEvent {
 class ReRegisterDownloadedMaps extends MapEvent {
   const ReRegisterDownloadedMaps();
 }
+
+/// Event triggered when My Position mode changes from native.
+class MyPositionModeChanged extends MapEvent {
+  final int mode;
+
+  const MyPositionModeChanged(this.mode);
+
+  @override
+  List<Object?> get props => [mode];
+}

@@ -260,7 +260,9 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
             result.success(id);
         }
     } else if (call.method.equals("getRouteFollowingInfo")) {
+        android.util.Log.d(TAG, "getRouteFollowingInfo: Called from Flutter");
         String json = nativeGetRouteFollowingInfo();
+        android.util.Log.d(TAG, "getRouteFollowingInfo: Native returned: " + json);
         result.success(json);
     } else if (call.method.equals("generateNotifications")) {
         Boolean announceStreets = call.argument("announceStreets");

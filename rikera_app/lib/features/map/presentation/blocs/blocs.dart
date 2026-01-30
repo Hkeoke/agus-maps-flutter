@@ -9,10 +9,9 @@ export 'map/map_cubit.dart';
 export 'map/map_event.dart';
 export 'map/map_state.dart';
 
-// Navigation Bloc
-export 'navigation/navigation_bloc.dart';
-export 'navigation/navigation_event.dart';
-export 'navigation/navigation_bloc_state.dart';
+// Navigation Info Cubit - Simple polling from motor
+export 'navigation_info/navigation_info_cubit.dart';
+export 'navigation_info/navigation_info_state.dart';
 
 // Route Bloc
 export 'route/route_bloc.dart';

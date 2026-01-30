@@ -2,7 +2,6 @@
 ///
 /// This file exports all repository implementations for easy importing.
 export 'route_repository_impl.dart';
-export 'navigation_repository_impl.dart';
 export 'map_repository_impl.dart';
 export 'map_view_state_repository_impl.dart';
 export 'location_repository_impl.dart';

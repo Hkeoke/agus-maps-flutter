@@ -9,6 +9,7 @@ import 'package:rikera_app/features/map/domain/repositories/repositories.dart'
     as domain_repos;
 import 'package:rikera_app/features/map/domain/usecases/usecases.dart';
 import 'package:rikera_app/features/map/presentation/blocs/blocs.dart';
+import 'package:rikera_app/features/map/presentation/blocs/navigation_info/navigation_info_cubit.dart';
 import 'package:rikera_app/features/settings/data/datasources/settings_data_source.dart';
 import 'package:rikera_app/features/settings/data/repositories/settings_repository_impl.dart';
 import 'package:rikera_app/features/settings/domain/repositories/settings_repository.dart';
@@ -89,10 +90,6 @@ Future<void> initializeDependencies() async {
     () => RouteRepositoryImpl(mapEngineDataSource: sl()),
   );
 
-  sl.registerLazySingleton<domain_repos.NavigationRepository>(
-    () => NavigationRepositoryImpl(),
-  );
-
   sl.registerLazySingleton<domain_repos.MapRepository>(
     () => MapRepositoryImpl(
       engineDataSource: sl(),
@@ -125,8 +122,6 @@ Future<void> initializeDependencies() async {
   // Use Cases
   // ============================================================================
   sl.registerLazySingleton(() => CalculateRouteUseCase(sl()));
-
-  sl.registerLazySingleton(() => StartNavigationUseCase(sl(), sl()));
 
   sl.registerLazySingleton(() => DownloadMapRegionUseCase(sl()));
 
@@ -161,16 +156,8 @@ Future<void> initializeDependencies() async {
     ),
   );
 
-  sl.registerFactory(
-    () => NavigationBloc(
-      startNavigationUseCase: sl(),
-      navigationRepository: sl(),
-      trackLocationUseCase: sl(),
-      voiceGuidanceService: sl(),
-      hapticFeedbackService: sl(),
-      settingsRepository: sl(),
-    ),
-  );
+  // Simple cubit for navigation info polling - reads directly from motor
+  sl.registerFactory(() => NavigationInfoCubit());
 
   sl.registerFactory(() => RouteBloc(calculateRouteUseCase: sl()));
 

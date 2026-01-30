@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:agus_maps_flutter/agus_maps_flutter.dart';
 import 'package:rikera_app/features/map/presentation/blocs/blocs.dart';
+import 'package:rikera_app/features/map/presentation/blocs/navigation_info/navigation_info_cubit.dart';
+import 'package:rikera_app/features/map/presentation/blocs/navigation_info/navigation_info_state.dart';
 import 'package:rikera_app/features/map/presentation/widgets/widgets.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
-import 'navigation_screen.dart';
 
 /// Main map screen displaying the interactive map.
 ///
@@ -107,111 +108,7 @@ class MapScreen extends StatelessWidget {
                     return const SizedBox.shrink();
                   },
                 ),
-                BlocBuilder<RouteBloc, RouteState>(
-                  builder: (context, routeState) {
-                    if (routeState is RouteCalculated) {
-                      return CustomPaint(
-                        painter: RouteOverlayPainter(route: routeState.route),
-                        child: const SizedBox.expand(),
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  },
-                ),
                 const MapFloatingActions(),
-                
-                // Bottom panel for route preview (matches Java app behavior)
-                BlocBuilder<RouteBloc, RouteState>(
-                  builder: (context, state) {
-                    if (state is RouteCalculated) {
-                      return Align(
-                        alignment: Alignment.bottomCenter,
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withAlpha(50),
-                                blurRadius: 10,
-                                spreadRadius: 2,
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Row(
-                                children: [
-                                  const Icon(Icons.directions_car, color: Colors.blue),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Ruta calculada',
-                                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        Text(
-                                          '${(state.route.totalDistanceMeters / 1000).toStringAsFixed(1)} km • ${(state.route.estimatedTimeSeconds / 60).toStringAsFixed(0)} min',
-                                          style: Theme.of(context).textTheme.bodyMedium,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.close),
-                                    onPressed: () {
-                                      context.read<RouteBloc>().add(const ClearRoute());
-                                      context.read<NavigationBloc>().add(const StopNavigation());
-                                      mapCubit.mapController.stopRouting();
-                                    },
-                                    tooltip: 'Cancelar',
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-                              SizedBox(
-                                width: double.infinity,
-                                height: 50,
-                                child: ElevatedButton(
-                                  onPressed: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) => NavigationScreen(route: state.route),
-                                      ),
-                                    );
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.blue,
-                                    foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  child: const Text(
-                                    'EMPEZAR NAVEGACIÓN',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 1.2,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }
-                    return const SizedBox.shrink();
-                  },
-                ),
               ],
             );
           },

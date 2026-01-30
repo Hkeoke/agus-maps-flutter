@@ -1141,15 +1141,33 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeCleanupFrameC
 extern "C" JNIEXPORT jstring JNICALL
 Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeGetRouteFollowingInfo(
     JNIEnv* env, jobject thiz) {
-    if (!g_framework) return nullptr;
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeGetRouteFollowingInfo: Called");
+    
+    if (!g_framework) {
+        __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", 
+            "nativeGetRouteFollowingInfo: g_framework is null");
+        return nullptr;
+    }
     
     RoutingManager & rm = g_framework->GetRoutingManager();
     
-    if (!rm.IsRoutingActive())
+    if (!rm.IsRoutingActive()) {
+        __android_log_print(ANDROID_LOG_WARN, "AgusMapsFlutterNative", 
+            "nativeGetRouteFollowingInfo: Routing is not active");
         return nullptr;
+    }
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeGetRouteFollowingInfo: Routing is active, getting info");
     
     routing::FollowingInfo info;
     rm.GetRouteFollowingInfo(info);
+    
+    // Log the raw info
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeGetRouteFollowingInfo: info.m_time=%d, info.m_speedLimitMps=%.2f, info.m_completionPercent=%.2f",
+        info.m_time, info.m_speedLimitMps, info.m_completionPercent);
     
     // Create JSON string with routing info
     std::ostringstream json;
@@ -1169,7 +1187,11 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeGetRouteFollo
     json << "\"nextStreetName\":\"" << info.m_nextStreetName << "\"";
     json << "}";
     
-    return env->NewStringUTF(json.str().c_str());
+    std::string jsonStr = json.str();
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeGetRouteFollowingInfo: JSON=%s", jsonStr.c_str());
+    
+    return env->NewStringUTF(jsonStr.c_str());
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL

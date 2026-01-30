@@ -13,5 +13,4 @@ export 'load_map_view_state_usecase.dart';
 export 'save_bookmark_usecase.dart';
 export 'save_map_view_state_usecase.dart';
 export 'search_places_usecase.dart';
-export 'start_navigation_usecase.dart';
 export 'track_location_usecase.dart';
