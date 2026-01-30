@@ -16,16 +16,25 @@
 #include <memory>
 #include <atomic>
 #include <chrono>
+#include <sstream>
 
 // CoMaps Framework includes
 #include "base/logging.hpp"
 #include "map/framework.hpp"
+#include "map/gps_tracker.hpp"
+#include "map/place_page_info.hpp"
+#include "map/routing_manager.hpp"
+#include "map/routing_mark.hpp"
 #include "platform/local_country_file.hpp"
+#include "platform/location.hpp"
 #include "drape/graphics_context_factory.hpp"
 #include "drape_frontend/visual_params.hpp"
 #include "drape_frontend/user_event_stream.hpp"
 #include "drape_frontend/active_frame_callback.hpp"
 #include "geometry/mercator.hpp"
+#include "storage/country_info_getter.hpp"
+#include "storage/storage.hpp"
+#include "search/everywhere_search_params.hpp"
 
 // Our Metal context factory
 #include "AgusMetalContextFactory.h"
@@ -694,4 +703,384 @@ extern "C" FFI_PLUGIN_EXPORT int comaps_get_map_style(void) {
     NSLog(@"[AgusMapsFlutter] comaps_get_map_style: Current style=%d", static_cast<int>(currentStyle));
     
     return static_cast<int>(currentStyle);
+}
+
+#pragma mark - Additional Native Functions for iOS Plugin Parity
+
+// Map status check
+extern "C" FFI_PLUGIN_EXPORT int32_t agus_native_check_map_status(double lat, double lon) {
+    if (!g_framework) return 0; // Undefined
+    
+    m2::PointD const pt = mercator::FromLatLon(lat, lon);
+    auto const & infoGetter = g_framework->GetCountryInfoGetter();
+    storage::CountryId countryId = infoGetter.GetRegionCountryId(pt);
+    
+    if (countryId == storage::kInvalidCountryId) return 0; // Undefined/Ocean
+    
+    storage::Status status = g_framework->GetStorage().CountryStatusEx(countryId);
+    return static_cast<int32_t>(status);
+}
+
+// PlacePage info
+extern "C" FFI_PLUGIN_EXPORT const char* agus_native_get_place_page_info(void) {
+    if (!g_framework || !g_framework->HasPlacePageInfo()) return nullptr;
+    
+    auto const & info = g_framework->GetCurrentPlacePageInfo();
+    
+    // Construct simple JSON string (static buffer for simplicity)
+    static std::string jsonBuffer;
+    jsonBuffer = "{";
+    jsonBuffer += "\"title\":\"" + info.GetTitle() + "\",";
+    jsonBuffer += "\"subtitle\":\"" + info.GetSubtitle() + "\",";
+    
+    auto mercator = info.GetMercator();
+    auto latlon = mercator::ToLatLon(mercator);
+    jsonBuffer += "\"lat\":" + std::to_string(latlon.m_lat) + ",";
+    jsonBuffer += "\"lon\":" + std::to_string(latlon.m_lon);
+    
+    jsonBuffer += "}";
+    
+    return jsonBuffer.c_str();
+}
+
+// Routing functions
+extern "C" FFI_PLUGIN_EXPORT void agus_native_build_route(double lat, double lon) {
+    if (!g_framework) return;
+    
+    auto & rm = g_framework->GetRoutingManager();
+    rm.RemoveRoute(true);
+    
+    // Set router type to Vehicle (car) for navigation with voice guidance
+    rm.SetRouter(routing::RouterType::Vehicle);
+    NSLog(@"[AgusMapsFlutter] Router type set to Vehicle");
+    
+    // Set Start (My Position)
+    RouteMarkData startPt;
+    startPt.m_isMyPosition = true;
+    startPt.m_pointType = RouteMarkType::Start;
+    rm.AddRoutePoint(std::move(startPt));
+    
+    // Set Finish
+    RouteMarkData finishPt;
+    finishPt.m_position = m2::PointD(mercator::FromLatLon(lat, lon));
+    finishPt.m_pointType = RouteMarkType::Finish;
+    rm.AddRoutePoint(std::move(finishPt));
+    
+    rm.BuildRoute();
+    
+    NSLog(@"[AgusMapsFlutter] agus_native_build_route: Route building initiated");
+}
+
+extern "C" FFI_PLUGIN_EXPORT void agus_native_stop_routing(void) {
+    if (!g_framework) return;
+    g_framework->GetRoutingManager().CloseRouting(true);
+    
+    // Disable 3D perspective when stopping navigation
+    g_framework->Allow3dMode(false, false);
+    
+    NSLog(@"[AgusMapsFlutter] agus_native_stop_routing: Navigation stopped");
+}
+
+extern "C" FFI_PLUGIN_EXPORT void agus_native_follow_route(void) {
+    if (!g_framework) {
+        NSLog(@"[AgusMapsFlutter] agus_native_follow_route: Framework not initialized");
+        return;
+    }
+    
+    auto & rm = g_framework->GetRoutingManager();
+    rm.FollowRoute();
+    
+    // Enable 3D perspective for navigation
+    g_framework->Allow3dMode(true, true);
+    
+    NSLog(@"[AgusMapsFlutter] agus_native_follow_route: Navigation mode activated with 3D perspective");
+}
+
+// My Position mode functions
+extern "C" FFI_PLUGIN_EXPORT void agus_native_switch_my_position_mode(void) {
+    if (!g_framework || !g_drapeEngineCreated) {
+        NSLog(@"[AgusMapsFlutter] agus_native_switch_my_position_mode: Framework or DrapeEngine not ready");
+        return;
+    }
+    
+    auto currentMode = g_framework->GetMyPositionMode();
+    NSLog(@"[AgusMapsFlutter] agus_native_switch_my_position_mode: current mode=%d", static_cast<int>(currentMode));
+    
+    g_framework->SwitchMyPositionNextMode();
+    
+    auto newMode = g_framework->GetMyPositionMode();
+    NSLog(@"[AgusMapsFlutter] agus_native_switch_my_position_mode: new mode=%d", static_cast<int>(newMode));
+}
+
+extern "C" FFI_PLUGIN_EXPORT int32_t agus_native_get_my_position_mode(void) {
+    if (!g_framework || !g_drapeEngineCreated) return 0; // PENDING_POSITION
+    return static_cast<int32_t>(g_framework->GetMyPositionMode());
+}
+
+extern "C" FFI_PLUGIN_EXPORT void agus_native_set_my_position_mode(int32_t mode) {
+    if (!g_framework || !g_drapeEngineCreated) {
+        NSLog(@"[AgusMapsFlutter] agus_native_set_my_position_mode: Framework or DrapeEngine not ready");
+        return;
+    }
+    
+    NSLog(@"[AgusMapsFlutter] agus_native_set_my_position_mode: setting mode to %d", mode);
+    
+    // Cycle through modes until we reach the desired one
+    auto currentMode = g_framework->GetMyPositionMode();
+    int attempts = 0;
+    const int maxAttempts = 5;
+    
+    while (static_cast<int>(currentMode) != mode && attempts < maxAttempts) {
+        g_framework->SwitchMyPositionNextMode();
+        currentMode = g_framework->GetMyPositionMode();
+        attempts++;
+    }
+    
+    NSLog(@"[AgusMapsFlutter] agus_native_set_my_position_mode: final mode=%d after %d attempts", 
+          static_cast<int>(currentMode), attempts);
+}
+
+// Scale function
+extern "C" FFI_PLUGIN_EXPORT void agus_native_scale(double factor) {
+    if (!g_framework) return;
+    // Scale relative to center, animated
+    g_framework->Scale(factor, true);
+}
+
+// Location and compass updates
+extern "C" FFI_PLUGIN_EXPORT void agus_native_on_location_update(double lat, double lon, double accuracy, double bearing, double speed, int64_t time) {
+    if (!g_framework) return;
+    
+    location::GpsInfo info;
+    info.m_latitude = lat;
+    info.m_longitude = lon;
+    info.m_timestamp = static_cast<double>(time) / 1000.0;
+    info.m_source = location::EAppleNative;
+    
+    // Always set accuracy (even if 0)
+    info.m_horizontalAccuracy = accuracy;
+    
+    // Set bearing if valid
+    if (bearing >= 0.0) {
+        info.m_bearing = bearing;
+    }
+    
+    // Set speed if valid
+    if (speed >= 0.0) {
+        info.m_speed = speed;
+    }
+    
+    NSLog(@"[AgusMapsFlutter] agus_native_on_location_update: lat=%.6f, lon=%.6f, accuracy=%.2f, bearing=%.2f, speed=%.2f", 
+          lat, lon, accuracy, bearing, speed);
+    
+    // Send location update to framework
+    g_framework->OnLocationUpdate(info);
+    
+    // Ensure map redrawing is triggered
+    if (g_drapeEngineCreated) {
+        g_framework->InvalidateRendering();
+        g_framework->MakeFrameActive();
+    }
+    
+    // Update GPS tracker
+    GpsTracker::Instance().OnLocationUpdated(info);
+}
+
+extern "C" FFI_PLUGIN_EXPORT void agus_native_on_compass_update(double bearing) {
+    if (!g_framework) return;
+    
+    location::CompassInfo info;
+    info.m_bearing = bearing;
+    
+    NSLog(@"[AgusMapsFlutter] agus_native_on_compass_update: bearing=%.2f", bearing);
+    
+    g_framework->OnCompassUpdate(info);
+    
+    // Trigger map redraw
+    if (g_drapeEngineCreated) {
+        g_framework->InvalidateRendering();
+        g_framework->MakeFrameActive();
+    }
+}
+
+// Country name lookup
+extern "C" FFI_PLUGIN_EXPORT const char* agus_native_get_country_name(double lat, double lon) {
+    if (!g_framework) return nullptr;
+    
+    auto const & infoGetter = g_framework->GetCountryInfoGetter();
+    m2::PointD const pt = mercator::FromLatLon(lat, lon);
+    storage::CountryId countryId = infoGetter.GetRegionCountryId(pt);
+    
+    static std::string countryBuffer;
+    countryBuffer = countryId;
+    return countryBuffer.c_str();
+}
+
+// Route following info
+extern "C" FFI_PLUGIN_EXPORT const char* agus_native_get_route_following_info(void) {
+    NSLog(@"[AgusMapsFlutter] agus_native_get_route_following_info: Called");
+    
+    if (!g_framework) {
+        NSLog(@"[AgusMapsFlutter] agus_native_get_route_following_info: Framework is null");
+        return nullptr;
+    }
+    
+    RoutingManager & rm = g_framework->GetRoutingManager();
+    
+    if (!rm.IsRoutingActive()) {
+        NSLog(@"[AgusMapsFlutter] agus_native_get_route_following_info: Routing is not active");
+        return nullptr;
+    }
+    
+    routing::FollowingInfo info;
+    rm.GetRouteFollowingInfo(info);
+    
+    // Create JSON string with routing info
+    static std::string jsonBuffer;
+    std::ostringstream json;
+    json << "{";
+    
+    // Convert distances to meters
+    auto distToTargetMeters = info.m_distToTarget.To(platform::Distance::Units::Meters);
+    auto distToTurnMeters = info.m_distToTurn.To(platform::Distance::Units::Meters);
+    json << "\"distanceToTarget\":" << distToTargetMeters.GetDistance() << ",";
+    json << "\"distanceToTurn\":" << distToTurnMeters.GetDistance() << ",";
+    json << "\"timeToTarget\":" << info.m_time << ",";
+    json << "\"turn\":" << static_cast<int>(info.m_turn) << ",";
+    json << "\"nextTurn\":" << static_cast<int>(info.m_nextTurn) << ",";
+    json << "\"exitNum\":" << info.m_exitNum << ",";
+    json << "\"completionPercent\":" << info.m_completionPercent << ",";
+    json << "\"speedLimitMps\":" << (info.m_speedLimitMps > 0 ? info.m_speedLimitMps : 0) << ",";
+    json << "\"currentStreetName\":\"" << info.m_currentStreetName << "\",";
+    json << "\"nextStreetName\":\"" << info.m_nextStreetName << "\"";
+    json << "}";
+    
+    jsonBuffer = json.str();
+    return jsonBuffer.c_str();
+}
+
+// Navigation notifications
+extern "C" FFI_PLUGIN_EXPORT const char** agus_native_generate_notifications(bool announceStreets, int32_t* count) {
+    if (!g_framework) {
+        *count = 0;
+        return nullptr;
+    }
+    
+    RoutingManager & rm = g_framework->GetRoutingManager();
+    
+    if (!rm.IsRoutingActive()) {
+        *count = 0;
+        return nullptr;
+    }
+    
+    static std::vector<std::string> notifications;
+    notifications.clear();
+    rm.GenerateNotifications(notifications, announceStreets);
+    
+    if (notifications.empty()) {
+        *count = 0;
+        return nullptr;
+    }
+    
+    // Create array of C strings
+    static std::vector<const char*> cStrings;
+    cStrings.clear();
+    for (auto const & n : notifications) {
+        cStrings.push_back(n.c_str());
+    }
+    
+    *count = static_cast<int32_t>(cStrings.size());
+    return cStrings.data();
+}
+
+extern "C" FFI_PLUGIN_EXPORT bool agus_native_is_route_finished(void) {
+    if (!g_framework) return false;
+    
+    RoutingManager & rm = g_framework->GetRoutingManager();
+    return rm.IsRouteFinished();
+}
+
+extern "C" FFI_PLUGIN_EXPORT void agus_native_disable_following(void) {
+    if (!g_framework) return;
+    g_framework->GetRoutingManager().DisableFollowMode();
+}
+
+extern "C" FFI_PLUGIN_EXPORT void agus_native_remove_route(void) {
+    if (!g_framework) return;
+    g_framework->GetRoutingManager().RemoveRoute(true /* deactivateFollowing */);
+}
+
+// Turn notifications
+extern "C" FFI_PLUGIN_EXPORT void agus_native_set_turn_notifications_locale(const char* locale) {
+    if (!g_framework || !locale) return;
+    
+    g_framework->GetRoutingManager().SetTurnNotificationsLocale(locale);
+    NSLog(@"[AgusMapsFlutter] agus_native_set_turn_notifications_locale: %s", locale);
+}
+
+extern "C" FFI_PLUGIN_EXPORT void agus_native_enable_turn_notifications(bool enable) {
+    if (!g_framework) return;
+    
+    g_framework->GetRoutingManager().EnableTurnNotifications(enable);
+    NSLog(@"[AgusMapsFlutter] agus_native_enable_turn_notifications: %d", enable);
+}
+
+extern "C" FFI_PLUGIN_EXPORT bool agus_native_are_turn_notifications_enabled(void) {
+    if (!g_framework) return false;
+    
+    return g_framework->GetRoutingManager().AreTurnNotificationsEnabled();
+}
+
+extern "C" FFI_PLUGIN_EXPORT const char* agus_native_get_turn_notifications_locale(void) {
+    if (!g_framework) return nullptr;
+    
+    static std::string localeBuffer;
+    localeBuffer = g_framework->GetRoutingManager().GetTurnNotificationsLocale();
+    return localeBuffer.c_str();
+}
+
+// Search functions
+extern "C" FFI_PLUGIN_EXPORT void agus_native_search(const char* query, double lat, double lon) {
+    if (!g_framework || !query) {
+        NSLog(@"[AgusMapsFlutter] agus_native_search: Framework not initialized or query is null");
+        return;
+    }
+    
+    NSLog(@"[AgusMapsFlutter] agus_native_search: query='%s', lat=%f, lon=%f", query, lat, lon);
+    
+    // Create search params
+    search::EverywhereSearchParams params;
+    params.m_query = query;
+    params.m_inputLocale = "en";
+    
+    // Create callback lambda for results
+    params.m_onResults = [](search::Results results, std::vector<search::ProductInfo> productInfo) {
+        NSLog(@"[AgusMapsFlutter] Search callback: Processing %zu results", results.GetCount());
+        
+        // TODO: Implement callback to Swift layer
+        // For now, just log the results
+        for (size_t i = 0; i < results.GetCount(); ++i) {
+            auto const & r = results[i];
+            auto const center = r.GetFeatureCenter();
+            NSLog(@"[AgusMapsFlutter] Result %zu: %s at (%.6f, %.6f)", 
+                  i, r.GetString().c_str(), center.x, center.y);
+        }
+        
+        if (results.IsEndMarker()) {
+            NSLog(@"[AgusMapsFlutter] Search completed");
+        }
+    };
+    
+    // Execute search
+    g_framework->GetSearchAPI().SearchEverywhere(std::move(params));
+    
+    NSLog(@"[AgusMapsFlutter] agus_native_search: Search started");
+}
+
+extern "C" FFI_PLUGIN_EXPORT void agus_native_cancel_search(void) {
+    if (!g_framework) return;
+    
+    g_framework->GetSearchAPI().CancelAllSearches();
+    
+    NSLog(@"[AgusMapsFlutter] agus_native_cancel_search: All searches cancelled");
 }

@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:agus_maps_flutter/agus_maps_flutter.dart';
 import 'package:rikera_app/features/map/presentation/blocs/blocs.dart';
-import 'package:rikera_app/features/map/presentation/blocs/navigation_info/navigation_info_cubit.dart';
-import 'package:rikera_app/features/map/presentation/blocs/navigation_info/navigation_info_state.dart';
 import 'package:rikera_app/features/map/presentation/widgets/widgets.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
 
@@ -40,12 +38,49 @@ class MapScreen extends StatelessWidget {
                   loc.timestamp.millisecondsSinceEpoch,
                 );
 
-                if (bearing >= 0) {
+                // Only use GPS bearing if compass rotation is not active
+                final compassState = context.read<CompassBloc>().state;
+                final compassActive = compassState is CompassActive && compassState.rotationEnabled;
+                
+                if (bearing >= 0 && !compassActive) {
                   mapCubit.mapController.setCompass(bearing);
                 }
               } else if (locationState is LocationPermissionDenied) {
                 // Request permissions if denied
                 context.read<LocationBloc>().add(const RequestPermissions());
+              }
+            },
+          ),
+          BlocListener<CompassBloc, CompassState>(
+            listener: (context, compassState) {
+              // Update map rotation when compass is active
+              if (compassState is CompassActive && compassState.rotationEnabled) {
+                mapCubit.mapController.setCompass(compassState.heading);
+              }
+            },
+          ),
+          BlocListener<MapCubit, MapState>(
+            listenWhen: (previous, current) {
+              // Listen to My Position mode changes
+              if (previous is MapReady && current is MapReady) {
+                return previous.myPositionMode != current.myPositionMode;
+              }
+              return false;
+            },
+            listener: (context, mapState) async {
+              if (mapState is MapReady) {
+                final compassBloc = context.read<CompassBloc>();
+                final compassState = compassBloc.state;
+                
+                // If entering FOLLOW_AND_ROTATE mode (4), automatically enable compass
+                // so the map rotates with device orientation during navigation
+                if (mapState.myPositionMode == 4) {
+                  if (compassState is CompassInitial || compassState is CompassStopped) {
+                    compassBloc.add(const StartCompass());
+                  } else if (compassState is CompassActive && !compassState.rotationEnabled) {
+                    compassBloc.add(const ToggleCompassRotation(true));
+                  }
+                }
               }
             },
           ),

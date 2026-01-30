@@ -1,5 +1,7 @@
 import 'package:get_it/get_it.dart';
+import 'package:agus_maps_flutter/agus_maps_flutter.dart' as agus_maps_flutter;
 import 'package:rikera_app/core/services/app_initialization_service.dart';
+import 'package:rikera_app/core/services/compass_service.dart';
 import 'package:rikera_app/core/services/haptic_feedback_service.dart';
 import 'package:rikera_app/core/services/memory_management_service.dart';
 import 'package:rikera_app/core/services/voice_guidance_service.dart';
@@ -9,7 +11,6 @@ import 'package:rikera_app/features/map/domain/repositories/repositories.dart'
     as domain_repos;
 import 'package:rikera_app/features/map/domain/usecases/usecases.dart';
 import 'package:rikera_app/features/map/presentation/blocs/blocs.dart';
-import 'package:rikera_app/features/map/presentation/blocs/navigation_info/navigation_info_cubit.dart';
 import 'package:rikera_app/features/settings/data/datasources/settings_data_source.dart';
 import 'package:rikera_app/features/settings/data/repositories/settings_repository_impl.dart';
 import 'package:rikera_app/features/settings/domain/repositories/settings_repository.dart';
@@ -47,6 +48,9 @@ Future<void> initializeDependencies() async {
   sl.registerLazySingleton<MemoryManagementService>(
     () => MemoryManagementService(),
   );
+
+  // Compass service
+  sl.registerLazySingleton<CompassService>(() => CompassService());
 
   // ============================================================================
   // Data Sources
@@ -102,8 +106,10 @@ Future<void> initializeDependencies() async {
     () => LocationRepositoryImpl(locationDataSource: sl()),
   );
 
+  // SearchRepository will be registered after MapCubit creates the controller
+  // For now, register a placeholder that will be replaced
   sl.registerLazySingleton<domain_repos.SearchRepository>(
-    () => SearchRepositoryImpl(),
+    () => throw UnimplementedError('SearchRepository requires MapController - call registerSearchRepository after map initialization'),
   );
 
   sl.registerLazySingleton<domain_repos.BookmarkRepository>(
@@ -187,6 +193,8 @@ Future<void> initializeDependencies() async {
     () => SettingsBloc(getSettingsUseCase: sl(), updateSettingsUseCase: sl()),
   );
 
+  sl.registerFactory(() => CompassBloc(compassService: sl()));
+
   // ============================================================================
   // App Initialization Service
   // ============================================================================
@@ -202,4 +210,21 @@ Future<void> initializeDependencies() async {
 /// Resets all dependencies (useful for testing)
 Future<void> resetDependencies() async {
   await sl.reset();
+}
+
+/// Registers the SearchRepository with the given map controller.
+/// This should be called after the map is initialized and the controller is available.
+void registerSearchRepository(agus_maps_flutter.AgusMapController mapController) {
+  // Unregister the placeholder if it exists
+  if (sl.isRegistered<domain_repos.SearchRepository>()) {
+    sl.unregister<domain_repos.SearchRepository>();
+  }
+  
+  // Register SearchDataSource with the map controller
+  final searchDataSource = SearchDataSource(mapController);
+  
+  // Register SearchRepository with the data source
+  sl.registerLazySingleton<domain_repos.SearchRepository>(
+    () => SearchRepositoryImpl(searchDataSource),
+  );
 }

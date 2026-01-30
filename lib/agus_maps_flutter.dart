@@ -551,6 +551,28 @@ class AgusMapController {
     final result = await _channel.invokeMethod('getTurnNotificationsLocale');
     return result as String?;
   }
+
+  /// Search for places matching the given query.
+  /// 
+  /// [query]: The search text (place name, address, etc.)
+  /// [lat], [lon]: Optional location to prioritize nearby results
+  /// 
+  /// Returns a list of search results with name, address, and coordinates.
+  Future<List<Map<String, dynamic>>> search(String query, {double? lat, double? lon}) async {
+    final result = await _channel.invokeMethod('search', {
+      'query': query,
+      if (lat != null) 'lat': lat,
+      if (lon != null) 'lon': lon,
+    });
+    
+    if (result == null) return [];
+    return List<Map<String, dynamic>>.from(result as List);
+  }
+
+  /// Cancel any ongoing search operations.
+  Future<void> cancelSearch() async {
+    await _channel.invokeMethod('cancelSearch');
+  }
 }
 
 /// A Flutter widget that displays a CoMaps map.

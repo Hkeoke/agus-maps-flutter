@@ -1,8 +1,10 @@
+import 'dart:math';
 import 'package:rikera_app/core/utils/result.dart';
 import 'package:rikera_app/core/errors/app_errors.dart';
 import 'package:rikera_app/core/utils/logger.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
 import 'package:rikera_app/features/map/domain/repositories/search_repository.dart';
+import 'package:rikera_app/features/map/data/datasources/search_datasource.dart';
 
 /// Implementation of [SearchRepository] using CoMaps search APIs.
 ///
@@ -13,6 +15,7 @@ import 'package:rikera_app/features/map/domain/repositories/search_repository.da
 /// Requirements: 7.1, 7.4, 11.2
 class SearchRepositoryImpl implements SearchRepository {
   final AppLogger _logger = const AppLogger('SearchRepository');
+  final SearchDataSource _searchDataSource;
 
   /// Cache for recent search queries and their results.
   /// Key is the search query, value is the list of results.
@@ -23,6 +26,8 @@ class SearchRepositoryImpl implements SearchRepository {
 
   /// List of recent search queries (for LRU cache eviction).
   final List<String> _recentQueries = [];
+
+  SearchRepositoryImpl(this._searchDataSource);
 
   @override
   Future<Result<List<SearchResult>>> search({
@@ -46,29 +51,69 @@ class SearchRepositoryImpl implements SearchRepository {
         return Result.success(_searchCache[cacheKey]!);
       }
 
-      // TODO: Implement actual search using agus_maps_flutter
-      // For now, return a placeholder error indicating the feature needs implementation
-      // This will be implemented when agus_maps_flutter exposes search APIs
-      _logger.warning('Search not yet implemented');
-      return Result.failure(GenericError.notImplemented());
+      // Perform search using native API
+      final rawResults = await _searchDataSource.search(
+        query: query,
+        lat: nearLocation?.latitude,
+        lon: nearLocation?.longitude,
+      );
 
-      // Future implementation will look like:
-      // final results = await _searchDataSource.search(
-      //   query: query,
-      //   nearLocation: nearLocation,
-      //   maxResults: maxResults,
-      // );
-      //
-      // // Filter results to downloaded regions only
-      // final filteredResults = await _filterToDownloadedRegions(results);
-      //
-      // // Rank results by relevance and distance
-      // final rankedResults = _rankResults(filteredResults, nearLocation);
-      //
-      // // Cache the results
-      // _cacheSearchResults(cacheKey, rankedResults);
-      //
-      // return Result.success(rankedResults);
+      _logger.debug('Received ${rawResults.length} search results from native');
+
+      // Convert raw results to SearchResult entities
+      final results = rawResults.asMap().entries.map((entry) {
+        final index = entry.key;
+        final raw = entry.value;
+        final name = raw['name'] as String? ?? '';
+        final address = raw['address'] as String?;
+        final lat = raw['lat'] as double? ?? 0.0;
+        final lon = raw['lon'] as double? ?? 0.0;
+
+        // Calculate distance if nearLocation is provided
+        double? distanceMeters;
+        if (nearLocation != null) {
+          distanceMeters = _calculateDistance(
+            nearLocation.latitude,
+            nearLocation.longitude,
+            lat,
+            lon,
+          );
+        }
+
+        // Generate a unique ID for this result
+        final id = 'search_${DateTime.now().millisecondsSinceEpoch}_$index';
+
+        return SearchResult(
+          id: id,
+          name: name,
+          address: address,
+          location: Location(
+            latitude: lat,
+            longitude: lon,
+            timestamp: DateTime.now(),
+          ),
+          type: SearchResultType.poi, // Default to POI, could be enhanced later
+          distanceMeters: distanceMeters,
+        );
+      }).toList();
+
+      // Sort by distance if nearLocation is provided
+      if (nearLocation != null) {
+        results.sort((a, b) {
+          final distA = a.distanceMeters ?? double.infinity;
+          final distB = b.distanceMeters ?? double.infinity;
+          return distA.compareTo(distB);
+        });
+      }
+
+      // Limit results
+      final limitedResults = results.take(maxResults).toList();
+
+      // Cache the results
+      _cacheSearchResults(cacheKey, limitedResults);
+
+      _logger.debug('Returning ${limitedResults.length} search results');
+      return Result.success(limitedResults);
     } catch (e, stackTrace) {
       _logger.error('Search failed', error: e, stackTrace: stackTrace);
       return Result.failure(SearchError.searchFailed('$e'));
@@ -119,6 +164,28 @@ class SearchRepositoryImpl implements SearchRepository {
     final lat = nearLocation.latitude.toStringAsFixed(2);
     final lon = nearLocation.longitude.toStringAsFixed(2);
     return '${query.toLowerCase().trim()}@$lat,$lon';
+  }
+
+  /// Calculates the distance between two coordinates using the Haversine formula.
+  /// Returns distance in meters.
+  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const double earthRadius = 6371000; // meters
+    
+    final dLat = _toRadians(lat2 - lat1);
+    final dLon = _toRadians(lon2 - lon1);
+    
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(_toRadians(lat1)) * cos(_toRadians(lat2)) *
+        sin(dLon / 2) * sin(dLon / 2);
+    
+    final c = 2 * asin(sqrt(a));
+    
+    return earthRadius * c;
+  }
+
+  /// Converts degrees to radians.
+  double _toRadians(double degrees) {
+    return degrees * pi / 180.0;
   }
 
   /// Caches search results with LRU eviction.

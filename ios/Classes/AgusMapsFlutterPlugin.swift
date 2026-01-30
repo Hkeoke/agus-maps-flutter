@@ -126,6 +126,78 @@ public class AgusMapsFlutterPlugin: NSObject, FlutterPlugin, FlutterTexture {
         case "destroyMapSurface":
             handleDestroyMapSurface(result: result)
             
+        case "checkMapStatus":
+            handleCheckMapStatus(call: call, result: result)
+            
+        case "getPlacePageInfo":
+            handleGetPlacePageInfo(result: result)
+            
+        case "buildRoute":
+            handleBuildRoute(call: call, result: result)
+            
+        case "stopRouting":
+            handleStopRouting(result: result)
+            
+        case "switchMyPositionMode":
+            handleSwitchMyPositionMode(result: result)
+            
+        case "getMyPositionMode":
+            handleGetMyPositionMode(result: result)
+            
+        case "setMyPositionMode":
+            handleSetMyPositionMode(call: call, result: result)
+            
+        case "scale":
+            handleScale(call: call, result: result)
+            
+        case "onLocationUpdate":
+            handleOnLocationUpdate(call: call, result: result)
+            
+        case "onCompassUpdate":
+            handleOnCompassUpdate(call: call, result: result)
+            
+        case "setMapStyle":
+            handleSetMapStyle(call: call, result: result)
+            
+        case "getCountryName":
+            handleGetCountryName(call: call, result: result)
+            
+        case "getRouteFollowingInfo":
+            handleGetRouteFollowingInfo(result: result)
+            
+        case "generateNotifications":
+            handleGenerateNotifications(call: call, result: result)
+            
+        case "isRouteFinished":
+            handleIsRouteFinished(result: result)
+            
+        case "disableFollowing":
+            handleDisableFollowing(result: result)
+            
+        case "removeRoute":
+            handleRemoveRoute(result: result)
+            
+        case "followRoute":
+            handleFollowRoute(result: result)
+            
+        case "setTurnNotificationsLocale":
+            handleSetTurnNotificationsLocale(call: call, result: result)
+            
+        case "enableTurnNotifications":
+            handleEnableTurnNotifications(call: call, result: result)
+            
+        case "areTurnNotificationsEnabled":
+            handleAreTurnNotificationsEnabled(result: result)
+            
+        case "getTurnNotificationsLocale":
+            handleGetTurnNotificationsLocale(result: result)
+            
+        case "search":
+            handleSearch(call: call, result: result)
+            
+        case "cancelSearch":
+            handleCancelSearch(result: result)
+            
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -542,6 +614,277 @@ public class AgusMapsFlutterPlugin: NSObject, FlutterPlugin, FlutterTexture {
         agus_native_set_visual_scale(density)
     }
     
+    // MARK: - Map Status & Info Methods
+    
+    private func handleCheckMapStatus(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let lat = args["lat"] as? Double,
+              let lon = args["lon"] as? Double else {
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "lat/lon required", details: nil))
+            return
+        }
+        
+        let status = agus_native_check_map_status(lat, lon)
+        result(Int(status))
+    }
+    
+    private func handleGetPlacePageInfo(result: @escaping FlutterResult) {
+        if let jsonString = agus_native_get_place_page_info() {
+            result(String(cString: jsonString))
+        } else {
+            result(nil)
+        }
+    }
+    
+    private func handleGetCountryName(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let lat = args["lat"] as? Double,
+              let lon = args["lon"] as? Double else {
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "lat/lon required", details: nil))
+            return
+        }
+        
+        if let countryName = agus_native_get_country_name(lat, lon) {
+            result(String(cString: countryName))
+        } else {
+            result(nil)
+        }
+    }
+    
+    // MARK: - Routing Methods
+    
+    private func handleBuildRoute(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let lat = args["lat"] as? Double,
+              let lon = args["lon"] as? Double else {
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "lat/lon required", details: nil))
+            return
+        }
+        
+        agus_native_build_route(lat, lon)
+        result(nil)
+    }
+    
+    private func handleStopRouting(result: @escaping FlutterResult) {
+        agus_native_stop_routing()
+        result(nil)
+    }
+    
+    private func handleGetRouteFollowingInfo(result: @escaping FlutterResult) {
+        if let jsonString = agus_native_get_route_following_info() {
+            result(String(cString: jsonString))
+        } else {
+            result(nil)
+        }
+    }
+    
+    private func handleGenerateNotifications(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        let args = call.arguments as? [String: Any]
+        let announceStreets = args?["announceStreets"] as? Bool ?? true
+        
+        // Get notifications array from native
+        var count: Int32 = 0
+        if let notifications = agus_native_generate_notifications(announceStreets, &count) {
+            var notificationArray: [String] = []
+            for i in 0..<Int(count) {
+                if let notification = notifications[i] {
+                    notificationArray.append(String(cString: notification))
+                }
+            }
+            result(notificationArray)
+        } else {
+            result([])
+        }
+    }
+    
+    private func handleIsRouteFinished(result: @escaping FlutterResult) {
+        let finished = agus_native_is_route_finished()
+        result(finished)
+    }
+    
+    private func handleDisableFollowing(result: @escaping FlutterResult) {
+        agus_native_disable_following()
+        result(nil)
+    }
+    
+    private func handleRemoveRoute(result: @escaping FlutterResult) {
+        agus_native_remove_route()
+        result(nil)
+    }
+    
+    private func handleFollowRoute(result: @escaping FlutterResult) {
+        agus_native_follow_route()
+        result(nil)
+    }
+    
+    private func handleSetTurnNotificationsLocale(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let locale = args["locale"] as? String else {
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "locale required", details: nil))
+            return
+        }
+        
+        agus_native_set_turn_notifications_locale(locale)
+        result(nil)
+    }
+    
+    private func handleEnableTurnNotifications(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let enable = args["enable"] as? Bool else {
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "enable required", details: nil))
+            return
+        }
+        
+        agus_native_enable_turn_notifications(enable)
+        result(nil)
+    }
+    
+    private func handleAreTurnNotificationsEnabled(result: @escaping FlutterResult) {
+        let enabled = agus_native_are_turn_notifications_enabled()
+        result(enabled)
+    }
+    
+    private func handleGetTurnNotificationsLocale(result: @escaping FlutterResult) {
+        if let locale = agus_native_get_turn_notifications_locale() {
+            result(String(cString: locale))
+        } else {
+            result(nil)
+        }
+    }
+    
+    // MARK: - Position & Location Methods
+    
+    private func handleSwitchMyPositionMode(result: @escaping FlutterResult) {
+        agus_native_switch_my_position_mode()
+        result(nil)
+    }
+    
+    private func handleGetMyPositionMode(result: @escaping FlutterResult) {
+        let mode = agus_native_get_my_position_mode()
+        result(Int(mode))
+    }
+    
+    private func handleSetMyPositionMode(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let mode = args["mode"] as? Int else {
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "mode required", details: nil))
+            return
+        }
+        
+        agus_native_set_my_position_mode(Int32(mode))
+        result(nil)
+    }
+    
+    private func handleOnLocationUpdate(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let lat = args["lat"] as? Double,
+              let lon = args["lon"] as? Double else {
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "lat/lon required", details: nil))
+            return
+        }
+        
+        let accuracy = args["accuracy"] as? Double ?? 0.0
+        let bearing = args["bearing"] as? Double ?? 0.0
+        let speed = args["speed"] as? Double ?? 0.0
+        let time = args["time"] as? Int64 ?? Int64(Date().timeIntervalSince1970 * 1000)
+        
+        agus_native_on_location_update(lat, lon, accuracy, bearing, speed, time)
+        result(nil)
+    }
+    
+    private func handleOnCompassUpdate(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let bearing = args["bearing"] as? Double else {
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "bearing required", details: nil))
+            return
+        }
+        
+        agus_native_on_compass_update(bearing)
+        result(nil)
+    }
+    
+    // MARK: - Map Control Methods
+    
+    private func handleScale(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let factor = args["factor"] as? Double else {
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "factor required", details: nil))
+            return
+        }
+        
+        agus_native_scale(factor)
+        result(nil)
+    }
+    
+    private func handleSetMapStyle(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let style = args["style"] as? Int else {
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "style required", details: nil))
+            return
+        }
+        
+        agus_native_set_map_style(Int32(style))
+        result(nil)
+    }
+    
+    // MARK: - Search Methods
+    
+    private func handleSearch(call: FlutterMethodCall, result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any],
+              let query = args["query"] as? String else {
+            result(FlutterError(code: "INVALID_ARGUMENT", message: "query required", details: nil))
+            return
+        }
+        
+        let lat = args["lat"] as? Double ?? 0.0
+        let lon = args["lon"] as? Double ?? 0.0
+        
+        // Store result callback for async search results
+        searchResultCallback = result
+        
+        // Execute search
+        agus_native_search(query, lat, lon)
+    }
+    
+    private func handleCancelSearch(result: @escaping FlutterResult) {
+        agus_native_cancel_search()
+        result(nil)
+    }
+    
+    // Search result callback storage
+    private var searchResultCallback: FlutterResult?
+    
+    /// Called by native code when search results are available
+    @objc public func onSearchResults(_ results: [[String: Any]]) {
+        DispatchQueue.main.async { [weak self] in
+            guard let callback = self?.searchResultCallback else { return }
+            callback(results)
+            self?.searchResultCallback = nil
+        }
+    }
+    
+    /// Called by native code when PlacePage event occurs
+    @objc public func onPlacePageEvent(_ eventType: Int32) {
+        DispatchQueue.main.async { [weak self] in
+            self?.channel?.invokeMethod("onPlacePageEvent", arguments: Int(eventType))
+        }
+    }
+    
+    /// Called by native code when My Position mode changes
+    @objc public func onMyPositionModeChanged(_ mode: Int32) {
+        DispatchQueue.main.async { [weak self] in
+            self?.channel?.invokeMethod("onMyPositionModeChanged", arguments: Int(mode))
+        }
+    }
+    
+    /// Called by native code when routing event occurs
+    @objc public func onRoutingEvent(_ eventType: Int32, code: Int32) {
+        DispatchQueue.main.async { [weak self] in
+            let args: [String: Int] = ["type": Int(eventType), "code": Int(code)]
+            self?.channel?.invokeMethod("onRoutingEvent", arguments: args)
+        }
+    }
+    
     // MARK: - Helpers
     
     private func lookupKeyForAsset(_ asset: String) -> String {
@@ -549,3 +892,77 @@ public class AgusMapsFlutterPlugin: NSObject, FlutterPlugin, FlutterTexture {
         return FlutterDartProject.lookupKey(forAsset: asset)
     }
 }
+
+// MARK: - Native C Function Declarations
+
+@_silgen_name("agus_native_check_map_status")
+func agus_native_check_map_status(_ lat: Double, _ lon: Double) -> Int32
+
+@_silgen_name("agus_native_get_place_page_info")
+func agus_native_get_place_page_info() -> UnsafePointer<CChar>?
+
+@_silgen_name("agus_native_build_route")
+func agus_native_build_route(_ lat: Double, _ lon: Double)
+
+@_silgen_name("agus_native_stop_routing")
+func agus_native_stop_routing()
+
+@_silgen_name("agus_native_switch_my_position_mode")
+func agus_native_switch_my_position_mode()
+
+@_silgen_name("agus_native_get_my_position_mode")
+func agus_native_get_my_position_mode() -> Int32
+
+@_silgen_name("agus_native_set_my_position_mode")
+func agus_native_set_my_position_mode(_ mode: Int32)
+
+@_silgen_name("agus_native_scale")
+func agus_native_scale(_ factor: Double)
+
+@_silgen_name("agus_native_on_location_update")
+func agus_native_on_location_update(_ lat: Double, _ lon: Double, _ accuracy: Double, _ bearing: Double, _ speed: Double, _ time: Int64)
+
+@_silgen_name("agus_native_on_compass_update")
+func agus_native_on_compass_update(_ bearing: Double)
+
+@_silgen_name("agus_native_set_map_style")
+func agus_native_set_map_style(_ style: Int32)
+
+@_silgen_name("agus_native_get_country_name")
+func agus_native_get_country_name(_ lat: Double, _ lon: Double) -> UnsafePointer<CChar>?
+
+@_silgen_name("agus_native_get_route_following_info")
+func agus_native_get_route_following_info() -> UnsafePointer<CChar>?
+
+@_silgen_name("agus_native_generate_notifications")
+func agus_native_generate_notifications(_ announceStreets: Bool, _ count: UnsafeMutablePointer<Int32>) -> UnsafeMutablePointer<UnsafePointer<CChar>?>?
+
+@_silgen_name("agus_native_is_route_finished")
+func agus_native_is_route_finished() -> Bool
+
+@_silgen_name("agus_native_disable_following")
+func agus_native_disable_following()
+
+@_silgen_name("agus_native_remove_route")
+func agus_native_remove_route()
+
+@_silgen_name("agus_native_follow_route")
+func agus_native_follow_route()
+
+@_silgen_name("agus_native_set_turn_notifications_locale")
+func agus_native_set_turn_notifications_locale(_ locale: String)
+
+@_silgen_name("agus_native_enable_turn_notifications")
+func agus_native_enable_turn_notifications(_ enable: Bool)
+
+@_silgen_name("agus_native_are_turn_notifications_enabled")
+func agus_native_are_turn_notifications_enabled() -> Bool
+
+@_silgen_name("agus_native_get_turn_notifications_locale")
+func agus_native_get_turn_notifications_locale() -> UnsafePointer<CChar>?
+
+@_silgen_name("agus_native_search")
+func agus_native_search(_ query: String, _ lat: Double, _ lon: Double)
+
+@_silgen_name("agus_native_cancel_search")
+func agus_native_cancel_search()

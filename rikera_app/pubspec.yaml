@@ -62,6 +62,9 @@ dependencies:
   # Text-to-speech for voice guidance
   flutter_tts: ^4.2.0
 
+  # Compass/orientation sensors for map rotation
+  flutter_compass: ^0.8.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

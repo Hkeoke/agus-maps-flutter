@@ -7,6 +7,7 @@ export 'add_bookmark_dialog.dart';
 export 'edit_bookmark_dialog.dart';
 export 'map_floating_actions.dart';
 export 'my_location_button.dart';
+export 'compass_button.dart';
 export 'place_page_sheet.dart';
 export 'map_download_dialog.dart';
 export 'search_input_field.dart';

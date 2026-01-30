@@ -1285,3 +1285,198 @@ Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeGetTurnNotifi
     std::string locale = g_framework->GetRoutingManager().GetTurnNotificationsLocale();
     return env->NewStringUTF(locale.c_str());
 }
+
+// ============================================================================
+// Search functionality
+// ============================================================================
+
+// Global search callback references
+static jobject g_searchListener = nullptr;
+static jclass g_searchListenerClass = nullptr;
+static jmethodID g_onSearchResultsMethod = nullptr;
+static jmethodID g_onSearchCompletedMethod = nullptr;
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeInitSearch(
+    JNIEnv* env, jobject thiz, jobject listener) {
+    
+    if (!g_framework) {
+        __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", 
+            "nativeInitSearch: Framework not initialized");
+        return;
+    }
+    
+    // Clean up previous listener if exists
+    if (g_searchListener) {
+        env->DeleteGlobalRef(g_searchListener);
+        g_searchListener = nullptr;
+    }
+    if (g_searchListenerClass) {
+        env->DeleteGlobalRef(g_searchListenerClass);
+        g_searchListenerClass = nullptr;
+    }
+    
+    // Store search listener as global reference
+    g_searchListener = env->NewGlobalRef(listener);
+    
+    // Store search listener class and methods
+    jclass listenerClass = env->GetObjectClass(listener);
+    g_searchListenerClass = (jclass)env->NewGlobalRef(listenerClass);
+    
+    g_onSearchResultsMethod = env->GetMethodID(g_searchListenerClass, 
+        "onSearchResults", "([Lapp/agus/maps/agus_maps_flutter/SearchResult;)V");
+    g_onSearchCompletedMethod = env->GetMethodID(g_searchListenerClass, 
+        "onSearchCompleted", "()V");
+    
+    if (!g_onSearchResultsMethod || !g_onSearchCompletedMethod) {
+        __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", 
+            "nativeInitSearch: Failed to find callback methods");
+        return;
+    }
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeInitSearch: Search initialized successfully");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeSearch(
+    JNIEnv* env, jobject thiz, jstring jQuery, jdouble lat, jdouble lon, jobject listener) {
+    
+    if (!g_framework) {
+        __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", 
+            "nativeSearch: Framework not initialized");
+        return;
+    }
+    
+    if (!g_searchListener || !g_onSearchResultsMethod) {
+        __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", 
+            "nativeSearch: Search not initialized - call nativeInitSearch first");
+        return;
+    }
+    
+    const char* queryStr = env->GetStringUTFChars(jQuery, nullptr);
+    std::string query(queryStr);
+    env->ReleaseStringUTFChars(jQuery, queryStr);
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeSearch: query='%s', lat=%f, lon=%f", query.c_str(), lat, lon);
+    
+    // Create search params
+    search::EverywhereSearchParams params;
+    params.m_query = query;
+    params.m_inputLocale = "en";
+    
+    // Create callback lambda that will be called with results
+    params.m_onResults = [](search::Results results, std::vector<search::ProductInfo> productInfo) {
+        if (!g_searchListener || !g_javaVM || !g_onSearchResultsMethod) {
+            __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", 
+                "SearchCallback: Missing listener or methods");
+            return;
+        }
+        
+        // Attach to current thread
+        JNIEnv* env = nullptr;
+        bool needsDetach = false;
+        int getEnvStat = g_javaVM->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+        
+        if (getEnvStat == JNI_EDETACHED) {
+            if (g_javaVM->AttachCurrentThread(&env, nullptr) != 0) {
+                __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", 
+                    "SearchCallback: Failed to attach thread");
+                return;
+            }
+            needsDetach = true;
+        }
+        
+        // Create Java array of search results
+        jclass resultClass = env->FindClass("app/agus/maps/agus_maps_flutter/SearchResult");
+        if (!resultClass) {
+            __android_log_print(ANDROID_LOG_ERROR, "AgusMapsFlutterNative", 
+                "SearchCallback: Failed to find SearchResult class");
+            if (needsDetach) g_javaVM->DetachCurrentThread();
+            return;
+        }
+        
+        jobjectArray jResults = env->NewObjectArray(results.GetCount(), resultClass, nullptr);
+        
+        __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+            "SearchCallback: Processing %zu results", results.GetCount());
+        
+        for (size_t i = 0; i < results.GetCount(); ++i) {
+            auto const & r = results[i];
+            
+            // Create SearchResult object
+            jmethodID constructor = env->GetMethodID(resultClass, "<init>", 
+                "(Ljava/lang/String;Ljava/lang/String;DD)V");
+            
+            jstring jName = env->NewStringUTF(r.GetString().c_str());
+            jstring jAddress = env->NewStringUTF(r.GetAddress().c_str());
+            
+            auto const center = r.GetFeatureCenter();
+            
+            jobject jResult = env->NewObject(resultClass, constructor,
+                jName, jAddress, center.x, center.y);
+            
+            env->SetObjectArrayElement(jResults, i, jResult);
+            
+            env->DeleteLocalRef(jName);
+            env->DeleteLocalRef(jAddress);
+            env->DeleteLocalRef(jResult);
+        }
+        
+        // Call Java callback
+        env->CallVoidMethod(g_searchListener, g_onSearchResultsMethod, jResults);
+        
+        // Check for exceptions
+        if (env->ExceptionCheck()) {
+            env->ExceptionDescribe();
+            env->ExceptionClear();
+        }
+        
+        env->DeleteLocalRef(jResults);
+        env->DeleteLocalRef(resultClass);
+        
+        // If search is complete, notify
+        if (results.IsEndMarker()) {
+            __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+                "SearchCallback: Search completed");
+            if (g_onSearchCompletedMethod) {
+                env->CallVoidMethod(g_searchListener, g_onSearchCompletedMethod);
+            }
+        }
+        
+        if (needsDetach) {
+            g_javaVM->DetachCurrentThread();
+        }
+    };
+    
+    // Execute search
+    g_framework->GetSearchAPI().SearchEverywhere(std::move(params));
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeSearch: Search started");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeCancelSearch(
+    JNIEnv* env, jobject thiz) {
+    
+    if (!g_framework) return;
+    
+    g_framework->GetSearchAPI().CancelAllSearches();
+    
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeCancelSearch: All searches cancelled");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_app_agus_maps_agus_1maps_1flutter_AgusMapsFlutterPlugin_nativeShowSearchResult(
+    JNIEnv* env, jobject thiz, jint index) {
+    
+    if (!g_framework) return;
+    
+    // ShowResult method doesn't exist in the current API
+    // This would need to be implemented differently or removed
+    __android_log_print(ANDROID_LOG_DEBUG, "AgusMapsFlutterNative", 
+        "nativeShowSearchResult: Method not implemented in current API");
+}

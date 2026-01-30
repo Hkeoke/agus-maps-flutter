@@ -18,6 +18,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import io.flutter.view.TextureRegistry;
 import android.view.Surface;
@@ -34,6 +38,7 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
   private int surfaceHeight = 0;
   private float density = 2.0f;
   private android.os.Handler mainHandler;
+  private SearchListener searchListener;
   
   // Flag to ensure native library is loaded only once
   private static volatile boolean nativeLibraryLoaded = false;
@@ -302,6 +307,32 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
     } else if (call.method.equals("getTurnNotificationsLocale")) {
         String locale = nativeGetTurnNotificationsLocale();
         result.success(locale);
+    } else if (call.method.equals("search")) {
+        String query = call.argument("query");
+        Double lat = call.argument("lat");
+        Double lon = call.argument("lon");
+        
+        if (query != null) {
+            // Initialize search listener if not done
+            if (searchListener == null) {
+                searchListener = new SearchListener();
+                nativeInitSearch(searchListener);
+            }
+            
+            // Store result callback for this search
+            searchListener.setPendingResult(result);
+            
+            // Execute search
+            nativeSearch(query, 
+                lat != null ? lat : 0.0, 
+                lon != null ? lon : 0.0, 
+                searchListener);
+        } else {
+            result.error("INVALID_ARGUMENT", "query is null", null);
+        }
+    } else if (call.method.equals("cancelSearch")) {
+        nativeCancelSearch();
+        result.success(null);
     } else {
       result.notImplemented();
     }
@@ -340,6 +371,12 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
   
   private native void nativeInitFrameCallback();
   private native void nativeCleanupFrameCallback();
+  
+  // Search methods
+  private native void nativeInitSearch(SearchListener listener);
+  private native void nativeSearch(String query, double lat, double lon, SearchListener listener);
+  private native void nativeCancelSearch();
+  private native void nativeShowSearchResult(int index);
 
   /**
    * Called from native code when an active frame is rendered.
@@ -522,5 +559,52 @@ public class AgusMapsFlutterPlugin implements FlutterPlugin, MethodCallHandler {
     // Cleanup native frame callback
     nativeCleanupFrameCallback();
     channel.setMethodCallHandler(null);
+  }
+  
+  /**
+   * Inner class to handle search results from native code
+   */
+  private class SearchListener {
+    private Result pendingResult;
+    
+    public void setPendingResult(Result result) {
+      this.pendingResult = result;
+    }
+    
+    /**
+     * Called from native code when search results are available
+     */
+    @Keep
+    public void onSearchResults(SearchResult[] results) {
+      if (pendingResult == null) return;
+      
+      // Convert SearchResult[] to List<Map<String, Object>>
+      List<Map<String, Object>> resultList = new ArrayList<>();
+      for (SearchResult result : results) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("name", result.name);
+        map.put("address", result.address);
+        map.put("lat", result.lat);
+        map.put("lon", result.lon);
+        resultList.add(map);
+      }
+      
+      // Return results to Flutter
+      final Result callback = pendingResult;
+      if (mainHandler != null) {
+        mainHandler.post(() -> callback.success(resultList));
+      } else {
+        callback.success(resultList);
+      }
+    }
+    
+    /**
+     * Called from native code when search is completed
+     */
+    @Keep
+    public void onSearchCompleted() {
+      android.util.Log.d(TAG, "Search completed");
+      pendingResult = null;
+    }
   }
 }

@@ -37,3 +37,8 @@ export 'location/location_state.dart';
 export 'bookmark/bookmark_bloc.dart';
 export 'bookmark/bookmark_event.dart';
 export 'bookmark/bookmark_state.dart';
+
+// Compass Bloc
+export 'compass/compass_bloc.dart';
+export 'compass/compass_event.dart';
+export 'compass/compass_state.dart';

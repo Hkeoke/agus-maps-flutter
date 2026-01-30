@@ -3,12 +3,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rikera_app/core/theme/theme.dart';
 import 'package:rikera_app/features/settings/presentation/screens/settings_screen.dart';
 import '../blocs/blocs.dart';
-import '../blocs/navigation_info/navigation_info_cubit.dart';
-import '../blocs/navigation_info/navigation_info_state.dart';
 import '../screens/search_screen.dart';
 import '../screens/bookmarks_screen.dart';
 import '../screens/map_downloads_screen.dart';
 import 'my_location_button.dart';
+import 'compass_button.dart';
 
 /// Floating action buttons for map controls.
 ///
@@ -66,6 +65,8 @@ class MapFloatingActions extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   MyLocationButton(),
+                  const SizedBox(height: AppSpacing.md),
+                  const CompassButton(),
                   const SizedBox(height: AppSpacing.md),
                   _MapActionButton(
                     icon: Icons.add,

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart' hide Route;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:agus_maps_flutter/agus_maps_flutter.dart';
+import 'package:rikera_app/core/di/injection_container.dart';
 import 'package:rikera_app/core/services/map_style_manager.dart';
 import 'package:rikera_app/core/utils/logger.dart';
 import 'package:rikera_app/features/map/domain/entities/entities.dart';
@@ -48,6 +49,9 @@ class MapCubit extends Bloc<MapEvent, MapState> {
         _mapRepository = mapRepository,
         super(const MapInitial()) {
     mapController = AgusMapController();
+    
+    // Register search repository with the map controller
+    registerSearchRepository(mapController);
     
     on<MapReadyEvent>(_onMapReady);
     on<CheckMapDownloadRequired>(_onCheckMapDownloadRequired);
