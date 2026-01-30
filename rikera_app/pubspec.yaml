@@ -95,6 +95,7 @@ flutter:
 
     # CoMaps data files for engine initialization
     - assets/comaps_data/
+    - assets/comaps_data/categories_cuisines.txt
     - assets/comaps_data/fonts/
 
     # Category strings (localization)
